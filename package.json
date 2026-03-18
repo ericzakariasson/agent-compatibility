@@ -15,6 +15,10 @@
   "bin": {
     "agent-compatibility": "dist/src/bin.js"
   },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "files": [
     "dist/src",
     "README.md"

@@ -28,12 +28,12 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      # No registry-url here — it writes _authToken into .npmrc and breaks OIDC publish.
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22.14"
           cache: npm
+          registry-url: https://registry.npmjs.org
 
       - name: Ensure npm CLI supports OIDC publish
         run: npm install -g npm@^11.5.1
@@ -62,9 +62,10 @@ jobs:
             echo "already_published=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # --provenance triggers the OIDC publish path (see npm/cli#8730)
       - name: Publish package (OIDC)
         if: steps.npm.outputs.already_published != 'true'
-        run: npm publish --access public
+        run: npm publish --access public --provenance
 
       - name: Summarize skipped publish
         if: steps.npm.outputs.already_published == 'true'
