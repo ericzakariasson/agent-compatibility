@@ -44,11 +44,17 @@ jobs:
           echo "name=$(node -p "require('./package.json').name")" >> "$GITHUB_OUTPUT"
           echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
 
+      # GitHub does not allow secrets in `if:` — verify in a shell step instead.
       - name: Verify npm publish secret is available
-        if: ${{ secrets.NPM_TOKEN == '' && secrets.NODE_AUTH_TOKEN == '' && secrets.NPM_PUBLISH_TOKEN == '' }}
         run: |
-          echo "Missing npm publish secret. Set NPM_TOKEN, NODE_AUTH_TOKEN, or NPM_PUBLISH_TOKEN."
-          exit 1
+          if [ -z "$NPM_TOKEN" ] && [ -z "$NODE_AUTH_TOKEN_ALT" ] && [ -z "$NPM_PUBLISH_TOKEN_ALT" ]; then
+            echo "Missing npm publish secret. Add NPM_TOKEN, NODE_AUTH_TOKEN, or NPM_PUBLISH_TOKEN under repo Settings → Secrets."
+            exit 1
+          fi
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN_ALT: ${{ secrets.NODE_AUTH_TOKEN }}
+          NPM_PUBLISH_TOKEN_ALT: ${{ secrets.NPM_PUBLISH_TOKEN }}
 
       - name: Check whether this version is already published
         id: npm
@@ -60,17 +66,23 @@ jobs:
           fi
 
       - name: Publish package
-        if: ${{ steps.npm.outputs.already_published != 'true' }}
-        run: npm publish --access public
+        if: steps.npm.outputs.already_published != 'true'
+        run: |
+          TOKEN="$NPM_TOKEN"
+          [ -z "$TOKEN" ] && TOKEN="$NODE_AUTH_TOKEN_ALT"
+          [ -z "$TOKEN" ] && TOKEN="$NPM_PUBLISH_TOKEN_ALT"
+          NODE_AUTH_TOKEN="$TOKEN" npm publish --access public
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN || secrets.NODE_AUTH_TOKEN || secrets.NPM_PUBLISH_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN_ALT: ${{ secrets.NODE_AUTH_TOKEN }}
+          NPM_PUBLISH_TOKEN_ALT: ${{ secrets.NPM_PUBLISH_TOKEN }}
 
       - name: Summarize skipped publish
-        if: ${{ steps.npm.outputs.already_published == 'true' }}
+        if: steps.npm.outputs.already_published == 'true'
         run: |
           echo "Skipped publish because ${{ steps.package.outputs.name }}@${{ steps.package.outputs.version }} is already on npm." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Summarize published version
-        if: ${{ steps.npm.outputs.already_published != 'true' }}
+        if: steps.npm.outputs.already_published != 'true'
         run: |
           echo "Published ${{ steps.package.outputs.name }}@${{ steps.package.outputs.version }} to npm." >> "$GITHUB_STEP_SUMMARY"
