@@ -1,7 +1,15 @@
 {
   "name": "agent-compatibility",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "CLI for scoring how compatible a codebase is with autonomous agents.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ericzakariasson/agent-compatibility.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ericzakariasson/agent-compatibility/issues"
+  },
+  "homepage": "https://github.com/ericzakariasson/agent-compatibility#readme",
   "type": "module",
   "main": "./dist/src/cli.js",
   "bin": {
