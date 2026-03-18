@@ -1,3 +1,7 @@
+# Publishes via npm Trusted Publishing (OIDC). No NPM_TOKEN on publish step.
+# Requires: package Settings on npmjs.com → Trusted publisher → this repo + publish.yml
+# If you set an Environment on npm, uncomment `environment:` below and match the name.
+
 name: Publish to npm
 
 on:
@@ -12,11 +16,13 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
+  id-token: write # required for OIDC → npm
   contents: read
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # environment: npm   # uncomment if npm Trusted Publisher lists a GitHub Environment name
 
     steps:
       - name: Check out repository
@@ -25,9 +31,12 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: "22.14"
           cache: npm
           registry-url: https://registry.npmjs.org
+
+      - name: Ensure npm CLI supports OIDC publish
+        run: npm install -g npm@^11.5.1
 
       - name: Install dependencies
         run: npm ci
@@ -44,18 +53,6 @@ jobs:
           echo "name=$(node -p "require('./package.json').name")" >> "$GITHUB_OUTPUT"
           echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
 
-      # GitHub does not allow secrets in `if:` — verify in a shell step instead.
-      - name: Verify npm publish secret is available
-        run: |
-          if [ -z "$NPM_TOKEN" ] && [ -z "$NODE_AUTH_TOKEN_ALT" ] && [ -z "$NPM_PUBLISH_TOKEN_ALT" ]; then
-            echo "Missing npm publish secret. Add NPM_TOKEN, NODE_AUTH_TOKEN, or NPM_PUBLISH_TOKEN under repo Settings → Secrets."
-            exit 1
-          fi
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NODE_AUTH_TOKEN_ALT: ${{ secrets.NODE_AUTH_TOKEN }}
-          NPM_PUBLISH_TOKEN_ALT: ${{ secrets.NPM_PUBLISH_TOKEN }}
-
       - name: Check whether this version is already published
         id: npm
         run: |
@@ -65,17 +62,9 @@ jobs:
             echo "already_published=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Publish package
+      - name: Publish package (OIDC)
         if: steps.npm.outputs.already_published != 'true'
-        run: |
-          TOKEN="$NPM_TOKEN"
-          [ -z "$TOKEN" ] && TOKEN="$NODE_AUTH_TOKEN_ALT"
-          [ -z "$TOKEN" ] && TOKEN="$NPM_PUBLISH_TOKEN_ALT"
-          NODE_AUTH_TOKEN="$TOKEN" npm publish --access public
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NODE_AUTH_TOKEN_ALT: ${{ secrets.NODE_AUTH_TOKEN }}
-          NPM_PUBLISH_TOKEN_ALT: ${{ secrets.NPM_PUBLISH_TOKEN }}
+        run: npm publish --access public
 
       - name: Summarize skipped publish
         if: steps.npm.outputs.already_published == 'true'
@@ -85,4 +74,4 @@ jobs:
       - name: Summarize published version
         if: steps.npm.outputs.already_published != 'true'
         run: |
-          echo "Published ${{ steps.package.outputs.name }}@${{ steps.package.outputs.version }} to npm." >> "$GITHUB_STEP_SUMMARY"
+          echo "Published ${{ steps.package.outputs.name }}@${{ steps.package.outputs.version }} to npm (Trusted Publishing)." >> "$GITHUB_STEP_SUMMARY"
