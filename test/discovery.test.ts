@@ -55,4 +55,32 @@ describe("discoverRepository", () => {
     expect(discovery.filePaths).toContain(".vscode/settings.json");
     expect(discovery.textByPath.get(".vscode/settings.json")).toContain("typescript.tsdk");
   });
+
+  it("detects ci configs, task files, build configs, and native ecosystems", async () => {
+    const rootPath = await mkdtemp(path.join(os.tmpdir(), "agent-compatibility-"));
+    tempDirs.push(rootPath);
+
+    await mkdir(path.join(rootPath, ".circleci"), { recursive: true });
+    await mkdir(path.join(rootPath, "src"), { recursive: true });
+    await mkdir(path.join(rootPath, "include"), { recursive: true });
+    await writeFile(path.join(rootPath, "README.md"), "# Native Repo\n");
+    await writeFile(path.join(rootPath, ".circleci", "config.yml"), "version: 2.1\n");
+    await writeFile(path.join(rootPath, "Jenkinsfile"), "pipeline { agent any }\n");
+    await writeFile(path.join(rootPath, "Makefile"), "build:\n\tcc src/main.c -o app\n");
+    await writeFile(path.join(rootPath, "CMakeLists.txt"), "project(native LANGUAGES C CXX)\n");
+    await writeFile(path.join(rootPath, ".clang-format"), "BasedOnStyle: LLVM\n");
+    await writeFile(path.join(rootPath, "src", "main.c"), "int main(void) { return 0; }\n");
+    await writeFile(path.join(rootPath, "src", "lib.cpp"), "int value() { return 1; }\n");
+    await writeFile(path.join(rootPath, "include", "lib.hpp"), "int value();\n");
+
+    const discovery = await discoverRepository(rootPath);
+
+    expect(discovery.ciConfigFiles).toEqual(expect.arrayContaining([".circleci/config.yml", "Jenkinsfile"]));
+    expect(discovery.taskFiles).toContain("Makefile");
+    expect(discovery.buildConfigFiles).toContain("CMakeLists.txt");
+    expect(discovery.textByPath.get(".clang-format")).toContain("BasedOnStyle");
+    expect(discovery.sourceFiles).toEqual(expect.arrayContaining(["src/main.c", "src/lib.cpp"]));
+    expect(discovery.sourceFiles).not.toContain("include/lib.hpp");
+    expect(discovery.ecosystems).toEqual(expect.arrayContaining(["c", "cpp"]));
+  });
 });

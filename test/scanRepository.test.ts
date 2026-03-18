@@ -139,4 +139,60 @@ describe("scanRepository", () => {
     expect(staticCheck.status).toBe("partial");
     expect(staticCheck.evidence.some((entry) => entry.startsWith(".vscode/"))).toBe(true);
   });
+
+  it("counts CircleCI-based Go validation without auto-passing formatting", async () => {
+    const report = await scanRepository({
+      rootPath: fixturePath("circleci-go-service"),
+    });
+
+    expect(report.ecosystems).toContain("go");
+    expect(getCheck(report, "ciWorkflowPresent").status).toBe("pass");
+    expect(getCheck(report, "typeOrStaticCheckConfigured").status).toBe("pass");
+    expect(getCheck(report, "formatterConfigured").status).toBe("fail");
+  });
+
+  it("treats Makefile-based native repos as first-class build and validation surfaces", async () => {
+    const report = await scanRepository({
+      rootPath: fixturePath("makefile-c-lib"),
+    });
+
+    expect(report.ecosystems).toContain("c");
+    expect(report.classification.kind).toBe("library");
+    expect(getCheck(report, "buildOrPackageCommand").status).toBe("pass");
+    expect(getCheck(report, "testCommandDiscoverable").status).toBe("pass");
+    expect(getCheck(report, "validateCommandDiscoverable").status).toBe("pass");
+    expect(getCheck(report, "formatterConfigured").status).toBe("pass");
+    expect(getCheck(report, "typeOrStaticCheckConfigured").status).toBe("pass");
+  });
+
+  it("treats CMake metadata as a discoverable native build signal", async () => {
+    const report = await scanRepository({
+      rootPath: fixturePath("native-cpp-cmake"),
+    });
+
+    expect(report.ecosystems).toContain("cpp");
+    expect(report.classification.kind).toBe("library");
+    expect(getCheck(report, "buildOrPackageCommand").status).toBe("partial");
+    expect(getCheck(report, "testCommandDiscoverable").status).toBe("partial");
+  });
+
+  it("gives minimal Rust repos partial typed-language credit without auto-pass", async () => {
+    const report = await scanRepository({
+      rootPath: fixturePath("rust-crate-minimal"),
+    });
+
+    expect(report.ecosystems).toContain("rust");
+    expect(getCheck(report, "typeOrStaticCheckConfigured").status).toBe("partial");
+    expect(getCheck(report, "strictModeEnabled").status).toBe("not_applicable");
+  });
+
+  it("detects GitHub-native security scanning like CodeQL and dependency review", async () => {
+    const report = await scanRepository({
+      rootPath: fixturePath("github-codeql-repo"),
+    });
+
+    expect(getCheck(report, "ciWorkflowPresent").status).toBe("pass");
+    expect(getCheck(report, "securityScanConfigured").status).toBe("pass");
+    expect(getCheck(report, "ciSecurityStep").status).toBe("pass");
+  });
 });

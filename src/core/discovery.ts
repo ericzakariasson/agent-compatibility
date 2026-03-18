@@ -15,7 +15,12 @@ const SOURCE_EXTENSIONS = new Set([
   ".py",
   ".go",
   ".rs",
+  ".c",
+  ".cc",
+  ".cpp",
+  ".cxx",
 ]);
+const HEADER_EXTENSIONS = new Set([".h", ".hh", ".hpp"]);
 
 const DOC_NAMES = ["readme", "contributing", "agents", "license"];
 const MANIFEST_NAMES = [
@@ -38,7 +43,19 @@ const LOCKFILE_NAMES = new Set([
   "cargo.lock",
   "go.sum",
 ]);
-const CI_FILE_NAMES = new Set([".gitlab-ci.yml", ".gitlab-ci.yaml"]);
+const CI_FILE_NAMES = new Set([
+  ".gitlab-ci.yml",
+  ".gitlab-ci.yaml",
+  ".travis.yml",
+  "jenkinsfile",
+  "azure-pipelines.yml",
+  "azure-pipelines.yaml",
+  "bitbucket-pipelines.yml",
+]);
+const CI_FILE_PATHS = new Set([".circleci/config.yml", ".circleci/config.yaml"]);
+const TASK_FILE_NAMES = new Set(["makefile", "gnumakefile", "justfile", "taskfile.yml", "taskfile.yaml"]);
+const BUILD_CONFIG_FILE_NAMES = new Set(["cmakelists.txt", "cmakepresets.json", "meson.build", "meson.options", "compile_commands.json"]);
+const EXTRA_TEXT_FILE_NAMES = new Set(["codeowners", ".pre-commit-config.yaml", "dockerfile", ".clang-format", ".clang-tidy"]);
 const TEXT_CONFIG_EXTENSIONS = new Set([
   ".json",
   ".jsonc",
@@ -94,8 +111,28 @@ function isEnvExample(filePath: string): boolean {
   return base.includes(".env") && (base.includes("example") || base.includes("sample"));
 }
 
+function isCiConfigFile(filePath: string): boolean {
+  const normalized = filePath.toLowerCase();
+  return normalized.startsWith(".github/workflows/") || CI_FILE_PATHS.has(normalized) || CI_FILE_NAMES.has(path.basename(normalized));
+}
+
 function isWorkflowFile(filePath: string): boolean {
-  return filePath.startsWith(".github/workflows/") || CI_FILE_NAMES.has(path.basename(filePath).toLowerCase());
+  return isCiConfigFile(filePath);
+}
+
+function isTaskFile(filePath: string): boolean {
+  const normalized = filePath.toLowerCase();
+  return !normalized.includes("/") && TASK_FILE_NAMES.has(path.basename(normalized));
+}
+
+function isBuildConfigFile(filePath: string): boolean {
+  const normalized = filePath.toLowerCase();
+  return !normalized.includes("/") && BUILD_CONFIG_FILE_NAMES.has(path.basename(normalized));
+}
+
+function isNativeHeaderFile(relativePath: string): boolean {
+  const extension = path.extname(relativePath).toLowerCase();
+  return HEADER_EXTENSIONS.has(extension) && !isTestFile(relativePath);
 }
 
 function isIgnoredPath(relativePath: string, extraIgnored: string[]): boolean {
@@ -136,11 +173,18 @@ function shouldReadTextFile(relativePath: string, sourceReads: number): boolean 
   const extension = path.extname(relativePath).toLowerCase();
   const base = path.basename(relativePath).toLowerCase();
 
-  if (looksLikeDoc(relativePath) || looksLikeManifest(relativePath) || isWorkflowFile(relativePath) || isEnvExample(relativePath)) {
+  if (
+    looksLikeDoc(relativePath) ||
+    looksLikeManifest(relativePath) ||
+    isCiConfigFile(relativePath) ||
+    isTaskFile(relativePath) ||
+    isBuildConfigFile(relativePath) ||
+    isEnvExample(relativePath)
+  ) {
     return true;
   }
 
-  if (base === "codeowners" || base === ".pre-commit-config.yaml" || base === "dockerfile") {
+  if (EXTRA_TEXT_FILE_NAMES.has(base)) {
     return true;
   }
 
@@ -152,7 +196,7 @@ function shouldReadTextFile(relativePath: string, sourceReads: number): boolean 
     return true;
   }
 
-  if ((isSourceFile(relativePath) || isTestFile(relativePath)) && sourceReads < MAX_SOURCE_CONTENT_FILES) {
+  if ((isSourceFile(relativePath) || isTestFile(relativePath) || isNativeHeaderFile(relativePath)) && sourceReads < MAX_SOURCE_CONTENT_FILES) {
     return true;
   }
 
@@ -176,6 +220,14 @@ function detectEcosystems(filePaths: string[], packageJson: PackageJsonData | nu
 
   if (filePaths.includes("Cargo.toml") || filePaths.some((file) => file.endsWith(".rs"))) {
     ecosystems.add("rust");
+  }
+
+  if (filePaths.some((file) => file.endsWith(".c"))) {
+    ecosystems.add("c");
+  }
+
+  if (filePaths.some((file) => file.endsWith(".cc") || file.endsWith(".cpp") || file.endsWith(".cxx") || file.endsWith(".hh") || file.endsWith(".hpp"))) {
+    ecosystems.add("cpp");
   }
 
   return [...ecosystems];
@@ -219,7 +271,10 @@ export async function discoverRepository(rootPath: string, extraIgnored: string[
 
   const sourceFiles = filePaths.filter(isSourceFile);
   const testFiles = filePaths.filter(isTestFile);
-  const workflowFiles = filePaths.filter(isWorkflowFile);
+  const ciConfigFiles = filePaths.filter(isCiConfigFile);
+  const workflowFiles = ciConfigFiles;
+  const taskFiles = filePaths.filter(isTaskFile);
+  const buildConfigFiles = filePaths.filter(isBuildConfigFile);
   const envExampleFiles = filePaths.filter(isEnvExample);
   const docsFiles = filePaths.filter((filePath) => looksLikeDoc(filePath));
   const lockfiles = filePaths.filter((filePath) => LOCKFILE_NAMES.has(path.basename(filePath).toLowerCase()));
@@ -283,7 +338,10 @@ export async function discoverRepository(rootPath: string, extraIgnored: string[
     filePaths,
     sourceFiles,
     testFiles,
+    ciConfigFiles,
     workflowFiles,
+    taskFiles,
+    buildConfigFiles,
     envExampleFiles,
     docsFiles,
     lockfiles,

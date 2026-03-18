@@ -1,0 +1,15 @@
+version: 2.1
+
+jobs:
+  test:
+    docker:
+      - image: cimg/go:1.22
+    steps:
+      - checkout
+      - run: go vet ./...
+      - run: go test ./...
+
+workflows:
+  ci:
+    jobs:
+      - test

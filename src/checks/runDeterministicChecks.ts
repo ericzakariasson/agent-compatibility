@@ -83,9 +83,107 @@ function docsText(discovery: RepoDiscovery): string {
     .join("\n");
 }
 
-function workflowText(discovery: RepoDiscovery): string {
-  return discovery.workflowFiles.map((filePath) => discovery.textByPath.get(filePath) ?? "").join("\n");
+function ciConfigText(discovery: RepoDiscovery): string {
+  return discovery.ciConfigFiles.map((filePath) => discovery.textByPath.get(filePath) ?? "").join("\n");
 }
+
+function taskSurfaceFiles(discovery: RepoDiscovery): string[] {
+  return uniqueEvidence([...discovery.taskFiles, ...discovery.buildConfigFiles]);
+}
+
+function taskFileText(discovery: RepoDiscovery): string {
+  return taskSurfaceFiles(discovery)
+    .map((filePath) => discovery.textByPath.get(filePath) ?? "")
+    .join("\n");
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function matchesInFiles(discovery: RepoDiscovery, files: string[], pattern: RegExp): boolean {
+  if (files.length === 0) {
+    return false;
+  }
+
+  const allowed = new Set(files);
+  return hasText(discovery, pattern, (filePath) => allowed.has(filePath));
+}
+
+function firstMatchingFile(discovery: RepoDiscovery, files: string[], pattern: RegExp): string | undefined {
+  return files.find((filePath) => pattern.test(discovery.textByPath.get(filePath) ?? ""));
+}
+
+function ciConfigMatches(discovery: RepoDiscovery, pattern: RegExp): boolean {
+  return matchesInFiles(discovery, discovery.ciConfigFiles, pattern);
+}
+
+function taskFileMatches(discovery: RepoDiscovery, pattern: RegExp): boolean {
+  return matchesInFiles(discovery, discovery.taskFiles, pattern);
+}
+
+function buildConfigMatches(discovery: RepoDiscovery, pattern: RegExp): boolean {
+  return matchesInFiles(discovery, discovery.buildConfigFiles, pattern);
+}
+
+function taskTargetPattern(names: string[]): RegExp {
+  return new RegExp(`^\\s*(?:${names.map(escapeRegExp).join("|")})\\s*:`, "mi");
+}
+
+function taskFileHasTarget(discovery: RepoDiscovery, names: string[]): boolean {
+  return matchesInFiles(discovery, discovery.taskFiles, taskTargetPattern(names));
+}
+
+function collectSurfaceEvidence(
+  discovery: RepoDiscovery,
+  options: {
+    baseEvidence?: string[];
+    includeScripts?: boolean;
+    taskPattern?: RegExp;
+    taskTargets?: string[];
+    buildPattern?: RegExp;
+    ciPattern?: RegExp;
+  },
+): string[] {
+  const evidence = [...(options.baseEvidence ?? [])];
+
+  if (options.includeScripts) {
+    evidence.push("package.json scripts");
+  }
+
+  const taskPattern = options.taskPattern;
+  const taskTargetPatternValue = options.taskTargets ? taskTargetPattern(options.taskTargets) : undefined;
+  const taskMatch =
+    (taskPattern ? firstMatchingFile(discovery, discovery.taskFiles, taskPattern) : undefined) ??
+    (taskTargetPatternValue ? firstMatchingFile(discovery, discovery.taskFiles, taskTargetPatternValue) : undefined);
+  if (taskMatch) {
+    evidence.push(taskMatch);
+  }
+
+  const buildMatch = options.buildPattern ? firstMatchingFile(discovery, discovery.buildConfigFiles, options.buildPattern) : undefined;
+  if (buildMatch) {
+    evidence.push(buildMatch);
+  }
+
+  const ciMatch = options.ciPattern ? firstMatchingFile(discovery, discovery.ciConfigFiles, options.ciPattern) : undefined;
+  if (ciMatch) {
+    evidence.push(ciMatch);
+  }
+
+  return uniqueEvidence(evidence).slice(0, 3);
+}
+
+const FORMATTER_PATTERN = /\b(prettier|biome|black|rustfmt|cargo fmt|gofmt|go fmt|clang-format|checkpatch\.pl)\b/i;
+const LINTER_PATTERN = /\b(eslint|biome|ruff|flake8|pylint|golangci-lint|clippy|pyright|mypy|clang-tidy|cppcheck)\b/i;
+const STATIC_ANALYSIS_PATTERN = /\b(tsc|pyright|mypy|go vet|golangci-lint|cargo check|cargo clippy|clang-tidy|cppcheck)\b/i;
+const TEST_PATTERN = /\b(vitest|jest|mocha|ava|tap|pytest|unittest|go test|cargo test|ctest)\b/i;
+const COVERAGE_PATTERN = /\b(--coverage|coverage|coverageThreshold|nyc|c8|codecov|pytest-cov|lcov)\b/i;
+const SECURITY_PATTERN =
+  /\b(npm audit|pnpm audit|yarn npm audit|cargo audit|pip-audit|bandit|safety|snyk|trivy|semgrep|gitleaks|gosec|codeql|github\/codeql-action|dependency-review-action|osv-scanner|trufflehog|grype|anchore|git-secrets)\b/i;
+const BUILD_COMMAND_PATTERN =
+  /\b(cmake --build|meson compile|cargo build|cargo install|go build|ninja|make(?:\s+(?:all|build|compile|package))?|build|compile|package)\b/i;
+const CI_VALIDATION_PATTERN =
+  /\b(test|pytest|vitest|jest|lint|eslint|ruff|mypy|pyright|build|check|validate|coverage|audit|ctest|go test|go vet|cargo test|cargo check|cargo clippy|clang-tidy|cppcheck|clang-format|checkpatch\.pl)\b/i;
 
 function makeResult(
   definition: CheckDefinition,
@@ -117,30 +215,43 @@ function formatterSignals(discovery: RepoDiscovery): { configured: boolean; wire
       /^\.prettierrc/i.test(path.basename(filePath)) ||
       /^prettier\.config\./i.test(path.basename(filePath)) ||
       /^biome\.json/i.test(path.basename(filePath)) ||
+      /^\.clang-format$/i.test(path.basename(filePath)) ||
       /^rustfmt\.toml$/i.test(path.basename(filePath)) ||
       /^ruff\.toml$/i.test(path.basename(filePath)) ||
       /^\.ruff\.toml$/i.test(path.basename(filePath)),
   );
 
+  const scriptConfigured = scriptMatches(discovery, FORMATTER_PATTERN);
+  const taskConfigured = taskFileMatches(discovery, FORMATTER_PATTERN);
+  const ciConfigured = ciConfigMatches(discovery, FORMATTER_PATTERN);
+  const taskTargetConfigured = taskFileHasTarget(discovery, ["fmt", "format"]);
   const configured =
     configFiles.length > 0 ||
     hasDependency(discovery.packageJson, ["prettier", "@biomejs/biome"]) ||
     hasText(discovery, /\[tool\.black\]|\bblack\b/, (filePath) => filePath === "pyproject.toml") ||
-    hasText(discovery, /\brustfmt\b|\bgofmt\b/);
+    scriptConfigured ||
+    taskConfigured ||
+    ciConfigured ||
+    taskTargetConfigured;
 
-  const wired =
-    scriptMatches(discovery, /\b(prettier|biome|black|rustfmt|gofmt)\b/) ||
-    /\b(prettier|biome|black|rustfmt|gofmt)\b/.test(workflowText(discovery));
+  const wired = scriptConfigured || taskConfigured || taskTargetConfigured || ciConfigured;
 
   const evidence = [...configFiles];
   if (hasDependency(discovery.packageJson, ["prettier", "@biomejs/biome"])) {
     evidence.push("package.json");
   }
-  if (scriptMatches(discovery, /\b(prettier|biome|black|rustfmt|gofmt)\b/)) {
-    evidence.push("package.json scripts");
-  }
-
-  return { configured, wired, evidence: evidence.slice(0, 3) };
+  return {
+    configured,
+    wired,
+    evidence: collectSurfaceEvidence(discovery, {
+      baseEvidence: evidence,
+      includeScripts: scriptConfigured,
+      taskPattern: FORMATTER_PATTERN,
+      taskTargets: ["fmt", "format"],
+      buildPattern: FORMATTER_PATTERN,
+      ciPattern: FORMATTER_PATTERN,
+    }),
+  };
 }
 
 function lintSignals(discovery: RepoDiscovery): { configured: boolean; wired: boolean; deepConfig: boolean; evidence: string[] } {
@@ -150,6 +261,7 @@ function lintSignals(discovery: RepoDiscovery): { configured: boolean; wired: bo
       /^\.eslintrc/i.test(path.basename(filePath)) ||
       /^eslint\.config\./i.test(path.basename(filePath)) ||
       /^biome\.json/i.test(path.basename(filePath)) ||
+      /^\.clang-tidy$/i.test(path.basename(filePath)) ||
       /^\.golangci\./i.test(path.basename(filePath)) ||
       /^clippy\.toml$/i.test(path.basename(filePath)) ||
       /^ruff\.toml$/i.test(path.basename(filePath)) ||
@@ -173,21 +285,30 @@ function lintSignals(discovery: RepoDiscovery): { configured: boolean; wired: bo
     ]) ||
     hasText(discovery, /\[tool\.ruff\]|\[tool\.mypy\]|\[tool\.pyright\]/, (filePath) => filePath === "pyproject.toml");
 
-  const wired =
-    scriptMatches(discovery, /\b(eslint|biome|ruff|flake8|pylint|golangci-lint|clippy|pyright|mypy)\b/) ||
-    /\b(eslint|biome|ruff|flake8|pylint|golangci-lint|clippy|pyright|mypy)\b/.test(workflowText(discovery));
+  const scriptConfigured = scriptMatches(discovery, LINTER_PATTERN);
+  const taskConfigured = taskFileMatches(discovery, LINTER_PATTERN);
+  const ciConfigured = ciConfigMatches(discovery, LINTER_PATTERN);
+  const lintTargetConfigured = taskFileHasTarget(discovery, ["lint"]);
+  const wired = scriptConfigured || taskConfigured || ciConfigured || lintTargetConfigured;
 
   const deepConfig =
     configFiles.length > 0 ||
     hasText(discovery, /\brules\b|\boverrides\b|\bextends\b|\bselect\b|\bignore\b|\bstrict\b/, (filePath) =>
-      /eslint|biome|ruff|mypy|pyright|golangci|clippy|pyproject/i.test(filePath),
+      /eslint|biome|ruff|mypy|pyright|golangci|clippy|clang-tidy|pyproject/i.test(filePath),
     );
 
   return {
     configured,
     wired,
     deepConfig,
-    evidence: [...configFiles, ...(wired ? ["package.json scripts"] : [])].slice(0, 3),
+    evidence: collectSurfaceEvidence(discovery, {
+      baseEvidence: configFiles,
+      includeScripts: scriptConfigured,
+      taskPattern: LINTER_PATTERN,
+      taskTargets: ["lint"],
+      buildPattern: LINTER_PATTERN,
+      ciPattern: LINTER_PATTERN,
+    }),
   };
 }
 
@@ -196,20 +317,20 @@ function languageToolingSignals(discovery: RepoDiscovery): { configured: boolean
     {
       filePath: ".vscode/settings.json",
       pattern:
-        /\b(typescript\.tsdk|python\.analysis|rust-analyzer|gopls|jdtls|volar|svelteserver|yaml-language-server|lua-language-server|bash-language-server|marksman|taplo)\b/i,
+        /\b(typescript\.tsdk|python\.analysis|rust-analyzer|gopls|clangd|ccls|jdtls|volar|svelteserver|yaml-language-server|lua-language-server|bash-language-server|marksman|taplo)\b/i,
     },
     {
       filePath: ".vscode/extensions.json",
       pattern:
-        /\b(ms-vscode\.vscode-typescript-next|ms-python\.vscode-pylance|rust-lang\.rust-analyzer|golang\.go|redhat\.java|vue\.volar|svelte\.svelte-vscode|redhat\.vscode-yaml|tamasfe\.even-better-toml)\b/i,
+        /\b(ms-vscode\.vscode-typescript-next|ms-python\.vscode-pylance|rust-lang\.rust-analyzer|golang\.go|llvm-vs-code-extensions\.vscode-clangd|redhat\.java|vue\.volar|svelte\.svelte-vscode|redhat\.vscode-yaml|tamasfe\.even-better-toml)\b/i,
     },
     {
       filePath: ".helix/languages.toml",
-      pattern: /\b(language-server|typescript-language-server|pyright|rust-analyzer|gopls|jdtls|volar|svelteserver|yaml-language-server|marksman|taplo)\b/i,
+      pattern: /\b(language-server|typescript-language-server|pyright|rust-analyzer|gopls|clangd|ccls|jdtls|volar|svelteserver|yaml-language-server|marksman|taplo)\b/i,
     },
     {
       filePath: ".zed/settings.json",
-      pattern: /\b(language_servers|typescript-language-server|pyright|rust-analyzer|gopls|jdtls|volar|svelteserver|yaml-language-server|marksman|taplo)\b/i,
+      pattern: /\b(language_servers|typescript-language-server|pyright|rust-analyzer|gopls|clangd|ccls|jdtls|volar|svelteserver|yaml-language-server|marksman|taplo)\b/i,
     },
   ];
 
@@ -271,6 +392,7 @@ function staticCheckSignals(discovery: RepoDiscovery): { configured: boolean; wi
   const tsconfig = discovery.textByPath.get("tsconfig.json") ?? "";
   const pyproject = discovery.textByPath.get("pyproject.toml") ?? "";
   const languageTooling = languageToolingSignals(discovery);
+  const typedOrNativeEcosystem = discovery.ecosystems.some((ecosystem) => ["go", "rust", "c", "cpp"].includes(ecosystem));
   const configFiles = uniqueEvidence([
     ...collectEvidence(
       discovery,
@@ -279,7 +401,11 @@ function staticCheckSignals(discovery: RepoDiscovery): { configured: boolean; wi
         /^pyrightconfig\.json$/i.test(path.basename(filePath)) ||
         /^mypy\.ini$/i.test(path.basename(filePath)) ||
         /^go\.mod$/i.test(path.basename(filePath)) ||
-        /^Cargo\.toml$/i.test(path.basename(filePath)),
+        /^Cargo\.toml$/i.test(path.basename(filePath)) ||
+        /^CMakeLists\.txt$/i.test(path.basename(filePath)) ||
+        /^CMakePresets\.json$/i.test(path.basename(filePath)) ||
+        /^meson\.build$/i.test(path.basename(filePath)) ||
+        /^compile_commands\.json$/i.test(path.basename(filePath)),
     ),
     ...(hasText(discovery, /\[tool\.pyright\]|\[tool\.mypy\]/, (filePath) => filePath === "pyproject.toml")
       ? ["pyproject.toml"]
@@ -287,16 +413,21 @@ function staticCheckSignals(discovery: RepoDiscovery): { configured: boolean; wi
     ...(hasDependency(discovery.packageJson, ["typescript", "pyright", "mypy"]) ? ["package.json"] : []),
   ]);
 
+  const explicitValidationSurface =
+    scriptMatches(discovery, STATIC_ANALYSIS_PATTERN) ||
+    taskFileMatches(discovery, STATIC_ANALYSIS_PATTERN) ||
+    ciConfigMatches(discovery, STATIC_ANALYSIS_PATTERN) ||
+    taskFileHasTarget(discovery, ["check", "validate", "verify", "lint", "typecheck"]);
+
   const configured =
     Boolean(tsconfig) ||
     hasDependency(discovery.packageJson, ["typescript", "pyright", "mypy"]) ||
     hasText(discovery, /\[tool\.pyright\]|\[tool\.mypy\]/, (filePath) => filePath === "pyproject.toml") ||
     hasFile(discovery, (filePath) => /^go\.mod$/i.test(path.basename(filePath)) || /^Cargo\.toml$/i.test(path.basename(filePath))) ||
+    (typedOrNativeEcosystem && (discovery.taskFiles.length > 0 || discovery.buildConfigFiles.length > 0)) ||
     languageTooling.configured;
 
-  const wired =
-    scriptMatches(discovery, /\b(tsc|pyright|mypy|go test|go vet|cargo check|cargo clippy)\b/) ||
-    /\b(tsc|pyright|mypy|go test|go vet|cargo check|cargo clippy)\b/.test(workflowText(discovery));
+  const wired = explicitValidationSurface;
 
   let strict: "pass" | "partial" | "na" = "na";
   if (tsconfig) {
@@ -311,14 +442,30 @@ function staticCheckSignals(discovery: RepoDiscovery): { configured: boolean; wi
     configured,
     wired,
     strict,
-    evidence: uniqueEvidence([...configFiles, ...languageTooling.evidence, ...(wired ? ["package.json scripts"] : [])]).slice(0, 3),
+    evidence: collectSurfaceEvidence(discovery, {
+      baseEvidence: uniqueEvidence([...configFiles, ...languageTooling.evidence]),
+      includeScripts: scriptMatches(discovery, STATIC_ANALYSIS_PATTERN),
+      taskPattern: STATIC_ANALYSIS_PATTERN,
+      taskTargets: ["check", "validate", "verify", "lint", "typecheck"],
+      buildPattern: STATIC_ANALYSIS_PATTERN,
+      ciPattern: STATIC_ANALYSIS_PATTERN,
+    }),
   };
 }
 
 function testSignals(discovery: RepoDiscovery): { configured: boolean; evidence: string[] } {
+  const repoRootTestTarget = taskFileHasTarget(discovery, ["test", "check"]);
+  const scriptConfigured = scriptMatches(discovery, TEST_PATTERN);
+  const taskConfigured = taskFileMatches(discovery, TEST_PATTERN);
+  const buildConfigured = buildConfigMatches(discovery, TEST_PATTERN);
+  const ciConfigured = ciConfigMatches(discovery, TEST_PATTERN);
   const configured =
     hasDependency(discovery.packageJson, ["vitest", "jest", "mocha", "ava", "tap"]) ||
-    scriptMatches(discovery, /\b(vitest|jest|mocha|ava|tap|pytest|unittest|go test|cargo test)\b/) ||
+    scriptConfigured ||
+    taskConfigured ||
+    buildConfigured ||
+    ciConfigured ||
+    repoRootTestTarget ||
     hasText(discovery, /\[tool\.pytest\.ini_options\]|\[pytest\]/, (filePath) => filePath === "pyproject.toml") ||
     hasText(discovery, /\bdescribe\(|\bit\(|\btest\(/, (filePath) => filePath.endsWith(".test.ts") || filePath.endsWith(".spec.ts"));
 
@@ -326,37 +473,51 @@ function testSignals(discovery: RepoDiscovery): { configured: boolean; evidence:
   if (hasDependency(discovery.packageJson, ["vitest", "jest", "mocha", "ava", "tap"])) {
     evidence.push("package.json");
   }
-  if (scriptMatches(discovery, /\b(vitest|jest|mocha|ava|tap|pytest|go test|cargo test)\b/)) {
-    evidence.push("package.json scripts");
-  }
   if (discovery.testFiles.length > 0) {
     evidence.push(discovery.testFiles[0] ?? "tests");
   }
 
-  return { configured, evidence: evidence.slice(0, 3) };
+  return {
+    configured,
+    evidence: collectSurfaceEvidence(discovery, {
+      baseEvidence: evidence,
+      includeScripts: scriptConfigured,
+      taskPattern: TEST_PATTERN,
+      taskTargets: ["test", "check"],
+      buildPattern: TEST_PATTERN,
+      ciPattern: TEST_PATTERN,
+    }),
+  };
 }
 
 function coverageSignals(discovery: RepoDiscovery): { pass: boolean; partial: boolean; evidence: string[] } {
-  const coveragePattern = /\b(--coverage|coverage|coverageThreshold|nyc|c8|codecov|pytest-cov|lcov)\b/i;
   const pass =
-    scriptMatches(discovery, coveragePattern) ||
-    coveragePattern.test(workflowText(discovery)) ||
+    scriptMatches(discovery, COVERAGE_PATTERN) ||
+    ciConfigMatches(discovery, COVERAGE_PATTERN) ||
+    taskFileMatches(discovery, COVERAGE_PATTERN) ||
     hasFile(discovery, (filePath) => /^codecov\.(yml|yaml)$/i.test(path.basename(filePath))) ||
     hasDependency(discovery.packageJson, ["nyc", "c8"]);
 
   const partial = pass || hasText(discovery, /\bcoverage\b/i, (filePath) => /^README/i.test(path.basename(filePath)));
   const evidence = collectEvidence(discovery, (filePath) => /^codecov\.(yml|yaml)$/i.test(path.basename(filePath)));
-  if (scriptMatches(discovery, coveragePattern)) {
-    evidence.push("package.json scripts");
-  }
-  return { pass, partial, evidence: evidence.slice(0, 3) };
+  return {
+    pass,
+    partial,
+    evidence: collectSurfaceEvidence(discovery, {
+      baseEvidence: evidence,
+      includeScripts: scriptMatches(discovery, COVERAGE_PATTERN),
+      taskPattern: COVERAGE_PATTERN,
+      buildPattern: COVERAGE_PATTERN,
+      ciPattern: COVERAGE_PATTERN,
+    }),
+  };
 }
 
 function securitySignals(discovery: RepoDiscovery): { configured: boolean; inCi: boolean; evidence: string[] } {
-  const pattern = /\b(npm audit|pnpm audit|yarn npm audit|cargo audit|pip-audit|bandit|safety|snyk|trivy|semgrep|gitleaks|gosec)\b/i;
   const configured =
-    pattern.test(workflowText(discovery)) ||
-    scriptMatches(discovery, pattern) ||
+    ciConfigMatches(discovery, SECURITY_PATTERN) ||
+    scriptMatches(discovery, SECURITY_PATTERN) ||
+    taskFileMatches(discovery, SECURITY_PATTERN) ||
     hasFile(
       discovery,
       (filePath) =>
@@ -365,23 +526,25 @@ function securitySignals(discovery: RepoDiscovery): { configured: boolean; inCi:
         /^dependabot\.(yml|yaml)$/i.test(path.basename(filePath)) ||
         /^\.semgrep/i.test(path.basename(filePath)),
     ) ||
-    hasText(discovery, pattern);
+    hasText(discovery, SECURITY_PATTERN);
 
-  const inCi = pattern.test(workflowText(discovery));
-  const evidence = collectEvidence(
-    discovery,
-    (filePath) =>
-      /^\.snyk$/i.test(path.basename(filePath)) ||
-      /^\.gitleaks\.toml$/i.test(path.basename(filePath)) ||
-      /^dependabot\.(yml|yaml)$/i.test(path.basename(filePath)),
-  );
-  if (inCi) {
-    evidence.push(discovery.workflowFiles[0] ?? ".github/workflows");
-  } else if (scriptMatches(discovery, pattern)) {
-    evidence.push("package.json scripts");
-  }
-
-  return { configured, inCi, evidence: evidence.slice(0, 3) };
+  const inCi = ciConfigMatches(discovery, SECURITY_PATTERN);
+  return {
+    configured,
+    inCi,
+    evidence: collectSurfaceEvidence(discovery, {
+      baseEvidence: collectEvidence(
+        discovery,
+        (filePath) =>
+          /^\.snyk$/i.test(path.basename(filePath)) ||
+          /^\.gitleaks\.toml$/i.test(path.basename(filePath)) ||
+          /^dependabot\.(yml|yaml)$/i.test(path.basename(filePath)),
+      ),
+      includeScripts: scriptMatches(discovery, SECURITY_PATTERN),
+      taskPattern: SECURITY_PATTERN,
+      ciPattern: SECURITY_PATTERN,
+    }),
+  };
 }
 
 function evaluateCheck(definition: CheckDefinition, context: CheckContext): CheckResult {
@@ -471,55 +634,120 @@ function evaluateCheck(definition: CheckDefinition, context: CheckContext): Chec
       return makeResult(definition, "fail", ["no setup path documented or inferred"], 0.8);
 
     case "buildOrPackageCommand": {
+      const repoRootBuildTarget = taskFileHasTarget(discovery, ["build", "package", "compile", "all"]);
+      const repoRootBuildCommand = hasScriptNamed(discovery, ["build", "package", "compile"]) || repoRootBuildTarget || taskFileMatches(discovery, BUILD_COMMAND_PATTERN);
+      const ciBuildCommand = ciConfigMatches(discovery, BUILD_COMMAND_PATTERN);
+      const buildMetadataPresent = discovery.buildConfigFiles.length > 0;
       const buildRelevant =
         classification.kind === "application" ||
         classification.kind === "monorepo" ||
-        discovery.sourceFiles.some((filePath) => /\.(ts|tsx|rs)$/.test(filePath)) ||
+        discovery.sourceFiles.some((filePath) => /\.(ts|tsx|rs|go|c|cc|cpp|cxx)$/.test(filePath)) ||
+        discovery.ecosystems.some((ecosystem) => ecosystem === "c" || ecosystem === "cpp") ||
+        discovery.taskFiles.length > 0 ||
+        buildMetadataPresent ||
         Boolean(scripts.build) ||
-        Boolean(scripts.package);
+        Boolean(scripts.package) ||
+        Boolean(scripts.compile);
 
       if (!buildRelevant) {
         return makeResult(definition, "not_applicable", ["no build or packaging step appears necessary"], 0.7);
       }
 
-      if (hasScriptNamed(discovery, ["build", "package", "compile"]) || /\b(build|compile|package)\b/i.test(workflowText(discovery))) {
-        return makeResult(definition, "pass", ["package.json scripts"], 0.85);
+      if (repoRootBuildCommand) {
+        return makeResult(
+          definition,
+          "pass",
+          collectSurfaceEvidence(discovery, {
+            includeScripts: hasScriptNamed(discovery, ["build", "package", "compile"]) || scriptMatches(discovery, BUILD_COMMAND_PATTERN),
+            taskPattern: BUILD_COMMAND_PATTERN,
+            taskTargets: ["build", "package", "compile", "all"],
+          }),
+          0.85,
+        );
       }
-      if (/\b(build|compile|package)\b/i.test(workflowText(discovery))) {
-        return makeResult(definition, "partial", [discovery.workflowFiles[0] ?? "workflow"], 0.6);
+
+      if (ciBuildCommand || buildMetadataPresent) {
+        return makeResult(
+          definition,
+          "partial",
+          collectSurfaceEvidence(discovery, {
+            buildPattern: /.+/s,
+            ciPattern: BUILD_COMMAND_PATTERN,
+          }),
+          0.6,
+        );
       }
+
       return makeResult(definition, "fail", ["no build or packaging command found"], 0.8);
     }
 
-    case "testCommandDiscoverable":
-      if (hasScriptNamed(discovery, ["test", "test:unit", "check"])) {
-        return makeResult(definition, "pass", ["package.json scripts"], 0.95);
+    case "testCommandDiscoverable": {
+      const repoRootTestCommand = hasScriptNamed(discovery, ["test", "test:unit", "check"]) || taskFileHasTarget(discovery, ["test", "check"]) || taskFileMatches(discovery, TEST_PATTERN);
+      if (repoRootTestCommand) {
+        return makeResult(
+          definition,
+          "pass",
+          collectSurfaceEvidence(discovery, {
+            includeScripts: hasScriptNamed(discovery, ["test", "test:unit", "check"]) || scriptMatches(discovery, TEST_PATTERN),
+            taskPattern: TEST_PATTERN,
+            taskTargets: ["test", "check"],
+          }),
+          0.95,
+        );
       }
+
       if (tests.configured || discovery.testFiles.length > 0) {
         return makeResult(definition, "partial", tests.evidence, 0.6);
       }
       return makeResult(definition, "fail", ["no repo-root test command found"], 0.85);
+    }
 
-    case "validateCommandDiscoverable":
-      if (hasScriptNamed(discovery, ["lint", "check", "validate", "typecheck"])) {
-        return makeResult(definition, "pass", ["package.json scripts"], 0.95);
+    case "validateCommandDiscoverable": {
+      const validationPattern = /\b(eslint|biome|ruff|mypy|pyright|prettier|tsc|go vet|golangci-lint|cargo check|cargo clippy|clang-tidy|cppcheck|clang-format|checkpatch\.pl)\b/i;
+      const repoRootValidationTarget = taskFileHasTarget(discovery, ["lint", "check", "validate", "verify", "typecheck", "fmt", "format"]);
+      const repoRootValidationCommand =
+        hasScriptNamed(discovery, ["lint", "check", "validate", "typecheck"]) ||
+        repoRootValidationTarget ||
+        taskFileMatches(discovery, validationPattern);
+
+      if (repoRootValidationCommand) {
+        return makeResult(
+          definition,
+          "pass",
+          collectSurfaceEvidence(discovery, {
+            includeScripts: hasScriptNamed(discovery, ["lint", "check", "validate", "typecheck"]) || scriptMatches(discovery, validationPattern),
+            taskPattern: validationPattern,
+            taskTargets: ["lint", "check", "validate", "verify", "typecheck", "fmt", "format"],
+          }),
+          0.95,
+        );
       }
-      if (scriptMatches(discovery, /\b(eslint|biome|ruff|mypy|pyright|prettier|tsc)\b/)) {
-        return makeResult(definition, "partial", ["package.json scripts"], 0.7);
+
+      if (scriptMatches(discovery, validationPattern) || ciConfigMatches(discovery, validationPattern) || buildConfigMatches(discovery, validationPattern)) {
+        return makeResult(
+          definition,
+          "partial",
+          collectSurfaceEvidence(discovery, {
+            includeScripts: scriptMatches(discovery, validationPattern),
+            buildPattern: validationPattern,
+            ciPattern: validationPattern,
+          }),
+          0.7,
+        );
       }
       return makeResult(definition, "fail", ["no clear validation command found"], 0.9);
+    }
 
     case "ciWorkflowPresent": {
-      if (discovery.workflowFiles.length === 0) {
-        return makeResult(definition, "fail", ["no CI workflow files found"], 0.9);
+      if (discovery.ciConfigFiles.length === 0) {
+        return makeResult(definition, "fail", ["no CI config files found"], 0.9);
       }
-      const ciRunsValidation = /\b(test|pytest|vitest|jest|lint|eslint|ruff|mypy|pyright|build|check|validate|coverage|audit)\b/i.test(
-        workflowText(discovery),
-      );
+
+      const ciRunsValidation = CI_VALIDATION_PATTERN.test(ciConfigText(discovery));
       if (ciRunsValidation) {
-        return makeResult(definition, "pass", discovery.workflowFiles.slice(0, 2), 0.95);
+        return makeResult(definition, "pass", discovery.ciConfigFiles.slice(0, 2), 0.95);
       }
-      return makeResult(definition, "partial", discovery.workflowFiles.slice(0, 2), 0.65);
+      return makeResult(definition, "partial", discovery.ciConfigFiles.slice(0, 2), 0.65);
     }
 
     case "testFrameworkConfigured":
@@ -545,9 +773,19 @@ function evaluateCheck(definition: CheckDefinition, context: CheckContext): Chec
       return makeResult(definition, "fail", ["no test files found"], 0.9);
     }
 
-    case "testsRunnableFromRepo":
-      if (hasScriptNamed(discovery, ["test"])) {
-        return makeResult(definition, "pass", ["package.json scripts"], 0.95);
+    case "testsRunnableFromRepo": {
+      const repoRootTestCommand = hasScriptNamed(discovery, ["test"]) || taskFileHasTarget(discovery, ["test", "check"]) || taskFileMatches(discovery, TEST_PATTERN);
+      if (repoRootTestCommand) {
+        return makeResult(
+          definition,
+          "pass",
+          collectSurfaceEvidence(discovery, {
+            includeScripts: hasScriptNamed(discovery, ["test"]) || scriptMatches(discovery, TEST_PATTERN),
+            taskPattern: TEST_PATTERN,
+            taskTargets: ["test", "check"],
+          }),
+          0.95,
+        );
       }
       if (!classification.isMonorepo && tests.configured) {
         return makeResult(definition, "partial", tests.evidence, 0.6);
@@ -556,6 +794,7 @@ function evaluateCheck(definition: CheckDefinition, context: CheckContext): Chec
         return makeResult(definition, "partial", ["tests exist but repo-root command is unclear"], 0.6);
       }
       return makeResult(definition, "fail", ["no repo-root test execution path found"], 0.9);
+    }
 
     case "coverageSignalPresent":
       if (coverage.pass) {
@@ -611,7 +850,7 @@ function evaluateCheck(definition: CheckDefinition, context: CheckContext): Chec
       if (hasRunDocs && hasValidateDocs) {
         return makeResult(definition, "pass", hasReadme ? ["README"] : docsPaths(discovery).slice(0, 2), 0.8);
       }
-      if (hasRunDocs || hasValidateDocs || Object.keys(scripts).length > 0) {
+      if (hasRunDocs || hasValidateDocs || Object.keys(scripts).length > 0 || discovery.taskFiles.length > 0) {
         return makeResult(definition, "partial", hasReadme ? ["README"] : ["commands can be inferred from tooling"], 0.6);
       }
       return makeResult(definition, "fail", ["no run or validation guidance detected"], 0.85);

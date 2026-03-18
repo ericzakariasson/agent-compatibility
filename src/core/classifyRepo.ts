@@ -63,7 +63,7 @@ function inferKind(discovery: RepoDiscovery): { kind: RepoKind; reasons: string[
     hasFile(discovery, "Dockerfile") ||
     hasFile(discovery, "docker-compose.yml") ||
     hasFile(discovery, "docker-compose.yaml") ||
-    discovery.filePaths.some((filePath) => /(^|\/)(server|app|main)\.(ts|tsx|js|jsx|py|go|rs)$/.test(filePath));
+    discovery.filePaths.some((filePath) => /(^|\/)(server|app|main)\.(ts|tsx|js|jsx|py|go|rs|c|cc|cpp|cxx)$/.test(filePath));
 
   const hasApplicationSignals =
     hasServerSignals ||
@@ -80,6 +80,15 @@ function inferKind(discovery: RepoDiscovery): { kind: RepoKind; reasons: string[
     return { kind: "application", reasons };
   }
 
+  const hasNativeBuildSignals =
+    hasFile(discovery, "Makefile") ||
+    hasFile(discovery, "makefile") ||
+    hasFile(discovery, "GNUmakefile") ||
+    hasFile(discovery, "CMakeLists.txt") ||
+    hasFile(discovery, "CMakePresets.json") ||
+    hasFile(discovery, "meson.build") ||
+    discovery.ecosystems.some((ecosystem) => ecosystem === "c" || ecosystem === "cpp");
+
   const hasLibrarySignals =
     Boolean(packageJson?.exports) ||
     Boolean(packageJson?.main) ||
@@ -87,7 +96,8 @@ function inferKind(discovery: RepoDiscovery): { kind: RepoKind; reasons: string[
     scriptNames.includes("build") ||
     hasFile(discovery, "Cargo.toml") ||
     hasFile(discovery, "pyproject.toml") ||
-    hasFile(discovery, "go.mod");
+    hasFile(discovery, "go.mod") ||
+    hasNativeBuildSignals;
 
   if (hasLibrarySignals) {
     reasons.push("package or library metadata found");

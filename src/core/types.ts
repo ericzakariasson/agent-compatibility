@@ -11,7 +11,7 @@ export type PillarId =
   | "securityGovernance";
 
 export type RepoKind = "library" | "application" | "cli" | "monorepo" | "unknown";
-export type Ecosystem = "node" | "python" | "go" | "rust";
+export type Ecosystem = "node" | "python" | "go" | "rust" | "c" | "cpp";
 export type MaturityBand = "Fragile" | "Basic" | "Functional" | "Standardized" | "Agent-Ready";
 
 export interface RepoClassification {
@@ -43,7 +43,10 @@ export interface RepoDiscovery {
   filePaths: string[];
   sourceFiles: string[];
   testFiles: string[];
+  ciConfigFiles: string[];
   workflowFiles: string[];
+  taskFiles: string[];
+  buildConfigFiles: string[];
   envExampleFiles: string[];
   docsFiles: string[];
   lockfiles: string[];
