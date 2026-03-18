@@ -1,0 +1,41 @@
+{
+  "name": "agent-compatibility",
+  "version": "0.1.2",
+  "description": "CLI for scoring how compatible a codebase is with autonomous agents.",
+  "type": "module",
+  "main": "./dist/src/cli.js",
+  "bin": {
+    "agent-compatibility": "dist/src/bin.js"
+  },
+  "files": [
+    "dist/src",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/bin.ts",
+    "scan": "tsx src/bin.ts",
+    "test": "vitest run",
+    "prepack": "npm run build && npm test"
+  },
+  "keywords": [
+    "cli",
+    "codebase",
+    "agent",
+    "compatibility"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "commander": "^14.0.3",
+    "ink": "^6.8.0",
+    "react": "^19.2.4"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.5",
+    "@types/react": "^19.2.14",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "name": "standardized-node-service",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --check .",
+    "validate": "npm run lint && npm run typecheck && npm run test",
+    "coverage": "vitest run --coverage",
+    "audit": "npm audit --audit-level=high"
+  },
+  "dependencies": {
+    "@sentry/node": "^9.0.0",
+    "fastify": "^5.0.0",
+    "pg": "^8.0.0",
+    "pino": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.0.0",
+    "prettier": "^3.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^3.0.0"
+  }
+}
