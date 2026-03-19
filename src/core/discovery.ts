@@ -1,6 +1,8 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
+import { LOCKFILE_BASENAMES } from "../config/lockfileNames.js";
+
 import type { Ecosystem, PackageJsonData, RepoDiscovery } from "./types.js";
 
 const SOURCE_EXTENSIONS = new Set([
@@ -19,11 +21,39 @@ const SOURCE_EXTENSIONS = new Set([
   ".cc",
   ".cpp",
   ".cxx",
+  ".java",
+  ".kt",
+  ".kts",
+  ".scala",
+  ".cs",
+  ".swift",
+  ".php",
+  ".rb",
+  ".dart",
+  ".zig",
+  ".ex",
+  ".exs",
+  ".lua",
+  ".hs",
+  ".ml",
+  ".mli",
 ]);
-const HEADER_EXTENSIONS = new Set([".h", ".hh", ".hpp"]);
+const HEADER_EXTENSIONS = new Set([".h", ".hh", ".hpp", ".hxx", ".ipp"]);
 
-const DOC_NAMES = ["readme", "contributing", "agents", "license"];
-const MANIFEST_NAMES = [
+const DOC_NAMES = [
+  "readme",
+  "agents",
+  "claude",
+  "license",
+  "contributing",
+  "changelog",
+  "security",
+  "code_of_conduct",
+  "governance",
+];
+
+/** Exact manifest basenames (lowercase). */
+const MANIFEST_BASENAMES = new Set([
   "package.json",
   "tsconfig.json",
   "pyproject.toml",
@@ -31,18 +61,26 @@ const MANIFEST_NAMES = [
   "requirements-dev.txt",
   "go.mod",
   "cargo.toml",
-];
-const LOCKFILE_NAMES = new Set([
-  "package-lock.json",
-  "pnpm-lock.yaml",
-  "yarn.lock",
-  "bun.lockb",
-  "poetry.lock",
-  "uv.lock",
-  "pipfile.lock",
-  "cargo.lock",
-  "go.sum",
+  "pom.xml",
+  "build.gradle",
+  "build.gradle.kts",
+  "settings.gradle",
+  "settings.gradle.kts",
+  "gradle.properties",
+  "gemfile",
+  "composer.json",
+  "package.swift",
+  "pubspec.yaml",
+  "mix.exs",
+  "build.sbt",
+  "deno.json",
+  "deno.jsonc",
+  "module.bazel",
+  "workspace",
+  "workspace.bazel",
+  "goframe.mod",
 ]);
+
 const CI_FILE_NAMES = new Set([
   ".gitlab-ci.yml",
   ".gitlab-ci.yaml",
@@ -51,11 +89,40 @@ const CI_FILE_NAMES = new Set([
   "azure-pipelines.yml",
   "azure-pipelines.yaml",
   "bitbucket-pipelines.yml",
+  "buildkite.yml",
+  "buildkite.yaml",
+  "drone.yml",
+  ".drone.yml",
+  "appveyor.yml",
+  "appveyor.yaml",
+  "codemagic.yaml",
+  "codemagic.yml",
+  "compose.yml",
+  "compose.yaml",
+  "docker-compose.yml",
+  "docker-compose.yaml",
+  "docker-compose.override.yml",
+  "docker-compose.override.yaml",
 ]);
 const CI_FILE_PATHS = new Set([".circleci/config.yml", ".circleci/config.yaml"]);
-const TASK_FILE_NAMES = new Set(["makefile", "gnumakefile", "justfile", "taskfile.yml", "taskfile.yaml"]);
-const BUILD_CONFIG_FILE_NAMES = new Set(["cmakelists.txt", "cmakepresets.json", "meson.build", "meson.options", "compile_commands.json"]);
-const EXTRA_TEXT_FILE_NAMES = new Set(["codeowners", ".pre-commit-config.yaml", "dockerfile", ".clang-format", ".clang-tidy"]);
+const TASK_FILE_NAMES = new Set([
+  "makefile",
+  "gnumakefile",
+  "justfile",
+  "taskfile.yml",
+  "taskfile.yaml",
+  "taskfile.dist.yml",
+  "taskfile.dist.yaml",
+  "earthfile",
+]);
+const BUILD_CONFIG_FILE_NAMES = new Set([
+  "cmakelists.txt",
+  "cmakepresets.json",
+  "meson.build",
+  "meson.options",
+  "compile_commands.json",
+]);
+const EXTRA_TEXT_FILE_NAMES = new Set(["codeowners", ".pre-commit-config.yaml", ".clang-format", ".clang-tidy", ".editorconfig"]);
 const TEXT_CONFIG_EXTENSIONS = new Set([
   ".json",
   ".jsonc",
@@ -69,6 +136,13 @@ const TEXT_CONFIG_EXTENSIONS = new Set([
   ".conf",
   ".env",
   ".properties",
+  ".xml",
+  ".gradle",
+  ".kts",
+  ".props",
+  ".targets",
+  ".plist",
+  ".cmake",
 ]);
 const DEFAULT_IGNORED_DIRS = new Set([
   ".git",
@@ -88,6 +162,17 @@ const DEFAULT_IGNORED_DIRS = new Set([
   "vendor",
   "target",
   ".idea",
+  ".nuxt",
+  ".svelte-kit",
+  ".output",
+  ".gradle",
+  ".pytest_cache",
+  ".mypy_cache",
+  "pods",
+  "bazel-bin",
+  "bazel-out",
+  "out",
+  "tmp",
 ]);
 const DEFAULT_IGNORED_SEGMENTS = ["fixtures/node_modules"];
 const MAX_TEXT_BYTES = 256 * 1024;
@@ -103,7 +188,17 @@ function looksLikeDoc(filePath: string): boolean {
 }
 
 function looksLikeManifest(filePath: string): boolean {
-  return MANIFEST_NAMES.includes(path.basename(filePath).toLowerCase());
+  const base = path.basename(filePath).toLowerCase();
+  if (MANIFEST_BASENAMES.has(base)) {
+    return true;
+  }
+  if (/\.(csproj|fsproj|vbproj|vcxproj|esproj)$/i.test(base)) {
+    return true;
+  }
+  if (base === "directory.build.props" || base === "directory.build.targets") {
+    return true;
+  }
+  return false;
 }
 
 function isEnvExample(filePath: string): boolean {
@@ -113,7 +208,16 @@ function isEnvExample(filePath: string): boolean {
 
 function isCiConfigFile(filePath: string): boolean {
   const normalized = filePath.toLowerCase();
-  return normalized.startsWith(".github/workflows/") || CI_FILE_PATHS.has(normalized) || CI_FILE_NAMES.has(path.basename(normalized));
+  if (normalized.startsWith(".github/workflows/")) {
+    return true;
+  }
+  if (normalized.startsWith(".buildkite/")) {
+    return true;
+  }
+  if (CI_FILE_PATHS.has(normalized)) {
+    return true;
+  }
+  return CI_FILE_NAMES.has(path.basename(normalized));
 }
 
 function isWorkflowFile(filePath: string): boolean {
@@ -121,13 +225,11 @@ function isWorkflowFile(filePath: string): boolean {
 }
 
 function isTaskFile(filePath: string): boolean {
-  const normalized = filePath.toLowerCase();
-  return !normalized.includes("/") && TASK_FILE_NAMES.has(path.basename(normalized));
+  return TASK_FILE_NAMES.has(path.basename(filePath.toLowerCase()));
 }
 
 function isBuildConfigFile(filePath: string): boolean {
-  const normalized = filePath.toLowerCase();
-  return !normalized.includes("/") && BUILD_CONFIG_FILE_NAMES.has(path.basename(normalized));
+  return BUILD_CONFIG_FILE_NAMES.has(path.basename(filePath.toLowerCase()));
 }
 
 function isNativeHeaderFile(relativePath: string): boolean {
@@ -188,6 +290,10 @@ function shouldReadTextFile(relativePath: string, sourceReads: number): boolean 
     return true;
   }
 
+  if (/^dockerfile/i.test(base) || /^containerfile/i.test(base)) {
+    return true;
+  }
+
   if (relativePath.startsWith(".husky/") || relativePath.startsWith(".devcontainer/")) {
     return true;
   }
@@ -203,31 +309,91 @@ function shouldReadTextFile(relativePath: string, sourceReads: number): boolean 
   return false;
 }
 
+function hasBasenameIc(filePaths: string[], basenameLower: string): boolean {
+  return filePaths.some((filePath) => path.basename(filePath).toLowerCase() === basenameLower);
+}
+
+function hasBasenameMatching(filePaths: string[], pattern: RegExp): boolean {
+  return filePaths.some((filePath) => pattern.test(path.basename(filePath)));
+}
+
 function detectEcosystems(filePaths: string[], packageJson: PackageJsonData | null): Ecosystem[] {
   const ecosystems = new Set<Ecosystem>();
 
-  if (packageJson || filePaths.includes("package.json")) {
+  if (packageJson || hasBasenameIc(filePaths, "package.json")) {
     ecosystems.add("node");
   }
 
-  if (filePaths.includes("pyproject.toml") || filePaths.includes("requirements.txt") || filePaths.some((file) => file.endsWith(".py"))) {
+  if (hasBasenameIc(filePaths, "deno.json") || hasBasenameIc(filePaths, "deno.jsonc")) {
+    ecosystems.add("deno");
+  }
+
+  if (
+    hasBasenameIc(filePaths, "pyproject.toml") ||
+    hasBasenameIc(filePaths, "requirements.txt") ||
+    hasBasenameIc(filePaths, "requirements-dev.txt") ||
+    filePaths.some((file) => file.toLowerCase().endsWith(".py"))
+  ) {
     ecosystems.add("python");
   }
 
-  if (filePaths.includes("go.mod") || filePaths.some((file) => file.endsWith(".go"))) {
+  if (hasBasenameIc(filePaths, "go.mod") || filePaths.some((file) => file.toLowerCase().endsWith(".go"))) {
     ecosystems.add("go");
   }
 
-  if (filePaths.includes("Cargo.toml") || filePaths.some((file) => file.endsWith(".rs"))) {
+  if (hasBasenameIc(filePaths, "cargo.toml") || filePaths.some((file) => file.toLowerCase().endsWith(".rs"))) {
     ecosystems.add("rust");
   }
 
-  if (filePaths.some((file) => file.endsWith(".c"))) {
+  if (filePaths.some((file) => file.toLowerCase().endsWith(".c"))) {
     ecosystems.add("c");
   }
 
-  if (filePaths.some((file) => file.endsWith(".cc") || file.endsWith(".cpp") || file.endsWith(".cxx") || file.endsWith(".hh") || file.endsWith(".hpp"))) {
+  if (
+    filePaths.some((file) => {
+      const f = file.toLowerCase();
+      return f.endsWith(".cc") || f.endsWith(".cpp") || f.endsWith(".cxx") || f.endsWith(".hh") || f.endsWith(".hpp");
+    })
+  ) {
     ecosystems.add("cpp");
+  }
+
+  if (
+    hasBasenameIc(filePaths, "pom.xml") ||
+    hasBasenameMatching(filePaths, /^build\.gradle(\.kts)?$/i) ||
+    hasBasenameMatching(filePaths, /^settings\.gradle(\.kts)?$/i)
+  ) {
+    ecosystems.add("jvm");
+  }
+
+  if (hasBasenameIc(filePaths, "gemfile") || filePaths.some((file) => file.toLowerCase().endsWith(".rb"))) {
+    ecosystems.add("ruby");
+  }
+
+  if (hasBasenameIc(filePaths, "composer.json") || filePaths.some((file) => file.toLowerCase().endsWith(".php"))) {
+    ecosystems.add("php");
+  }
+
+  if (hasBasenameMatching(filePaths, /\.(csproj|fsproj|vbproj|sln)$/i)) {
+    ecosystems.add("dotnet");
+  }
+
+  if (hasBasenameIc(filePaths, "package.swift") || filePaths.some((file) => file.toLowerCase().endsWith(".swift"))) {
+    ecosystems.add("swift");
+  }
+
+  if (
+    hasBasenameIc(filePaths, "mix.exs") ||
+    filePaths.some((file) => {
+      const f = file.toLowerCase();
+      return f.endsWith(".ex") || f.endsWith(".exs");
+    })
+  ) {
+    ecosystems.add("elixir");
+  }
+
+  if (hasBasenameIc(filePaths, "pubspec.yaml") || filePaths.some((file) => file.toLowerCase().endsWith(".dart"))) {
+    ecosystems.add("dart");
   }
 
   return [...ecosystems];
@@ -277,7 +443,7 @@ export async function discoverRepository(rootPath: string, extraIgnored: string[
   const buildConfigFiles = filePaths.filter(isBuildConfigFile);
   const envExampleFiles = filePaths.filter(isEnvExample);
   const docsFiles = filePaths.filter((filePath) => looksLikeDoc(filePath));
-  const lockfiles = filePaths.filter((filePath) => LOCKFILE_NAMES.has(path.basename(filePath).toLowerCase()));
+  const lockfiles = filePaths.filter((filePath) => LOCKFILE_BASENAMES.has(path.basename(filePath).toLowerCase()));
   const manifests = filePaths.filter((filePath) => looksLikeManifest(filePath));
 
   const textByPath = new Map<string, string>();

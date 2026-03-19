@@ -1,5 +1,6 @@
 import path from "node:path";
 
+import { docsText as repoDocsText } from "../core/repoDocs.js";
 import type {
   AcceleratorCheckDefinition,
   AcceleratorCheckResult,
@@ -64,7 +65,10 @@ const MCP_DEPENDENCY_CATEGORIES: DependencyCategory[] = [
       /\bsqlalchemy\b/i,
       /\bpsycopg\b/i,
     ],
-    serverPatterns: [/\bpostgres\b/i, /\bmysql\b/i, /\bsqlite\b/i, /\bmongo\b/i, /\bredis\b/i, /\bdb\b/i, /\bdatabase\b/i, /\bprisma\b/i],
+    serverPatterns: [
+      /\bpostgres\b|\bmysql\b|\bsqlite\b|\bmongo\b|\bredis\b|\bprisma\b|\bdrizzle\b|\bsupabase\b|\bfirebase\b|\bclickhouse\b|\bcassandra\b/i,
+      /\bdatabase\b/i,
+    ],
   },
   {
     id: "browser",
@@ -96,6 +100,43 @@ const MCP_DEPENDENCY_CATEGORIES: DependencyCategory[] = [
     dependencyPatterns: [/@linear\/sdk/i, /\blinear-sdk\b/i],
     serverPatterns: [/\blinear\b/i],
   },
+  {
+    id: "observability",
+    label: "observability",
+    dependencyPatterns: [
+      /@sentry\//i,
+      /@opentelemetry\//i,
+      /\bopentelemetry\b/i,
+      /\bdatadog\b/i,
+      /\bprom-client\b/i,
+      /\bhoneycomb\b/i,
+    ],
+    serverPatterns: [/\bsentry\b/i, /\bopentelemetry\b/i, /\botel\b/i, /\bdatadog\b/i, /\bhoneycomb\b/i, /\bprometheus\b/i],
+  },
+  {
+    id: "cloud_aws",
+    label: "cloud/aws",
+    dependencyPatterns: [/\baws-sdk\b/i, /@aws-sdk\//i, /\bboto3\b/i],
+    serverPatterns: [/\baws\b/i, /\bboto\b/i, /\baws-sdk\b/i, /@aws-sdk\//i],
+  },
+  {
+    id: "llm",
+    label: "llm",
+    dependencyPatterns: [
+      /\bopenai\b/i,
+      /@anthropic-ai\//i,
+      /\banthropic\b/i,
+      /\blangchain\b/i,
+      /@google\/generative-ai/i,
+    ],
+    serverPatterns: [/\bopenai\b/i, /\banthropic\b/i, /\blangchain\b/i, /\bgemini\b/i, /\bvertex\b/i],
+  },
+  {
+    id: "auth",
+    label: "auth",
+    dependencyPatterns: [/\bclerk\b/i, /\bnext-auth\b/i, /@auth0/i, /\bpassport\b/i, /\bokta\b/i],
+    serverPatterns: [/\bclerk\b/i, /\bnext-auth\b/i, /\bauth0\b/i, /@auth0/i, /\bpassport\b/i, /\bokta\b/i],
+  },
 ];
 
 function dependencyNames(packageJson: PackageJsonData | null): string[] {
@@ -118,12 +159,6 @@ function collectEvidence(discovery: RepoDiscovery, predicate: (filePath: string)
   return discovery.filePaths.filter(predicate).slice(0, limit);
 }
 
-function docsText(discovery: RepoDiscovery): string {
-  return discovery.filePaths
-    .filter((filePath) => /^README/i.test(path.basename(filePath)) || filePath === "AGENTS.md" || filePath === "CLAUDE.md" || filePath.startsWith("docs/"))
-    .map((filePath) => discovery.textByPath.get(filePath) ?? "")
-    .join("\n");
-}
 
 function countWords(text: string): number {
   return text.trim().match(/\S+/g)?.length ?? 0;
@@ -217,7 +252,7 @@ function parseJsonFile(discovery: RepoDiscovery, filePath: string): ParsedMcpCon
 }
 
 function getCursorMcpConfigs(discovery: RepoDiscovery): ParsedMcpConfig[] {
-  return [".cursor/mcp.json", ".cursor/mcp.jsonc"]
+  return [".cursor/mcp.json"]
     .filter((filePath) => discovery.filePaths.includes(filePath))
     .map((filePath) => parseJsonFile(discovery, filePath));
 }
@@ -246,7 +281,7 @@ function buildSignals(discovery: RepoDiscovery): AcceleratorSignals {
     hasAgentsGuide: discovery.filePaths.includes("AGENTS.md"),
     hasClaudeGuide: discovery.filePaths.includes("CLAUDE.md"),
     rootGuidanceDocs: getRootGuidanceDocs(discovery),
-    docsText: docsText(discovery),
+    docsText: repoDocsText(discovery),
     cursorAssets: assetPrefixes(discovery, [".cursor/skills/", ".cursor/agents/", ".cursor/rules/"]),
     claudeAssets: assetPrefixes(discovery, [".claude/agents/", ".claude/commands/"]),
     validCursorMcpConfigs: cursorMcpConfigs.filter((config) => config.valid),
@@ -315,6 +350,15 @@ function evaluateAccelerator(
       return makeResult(definition, "fail", ["no .cursor/mcp.json found"], 0.9);
 
     case "claudeToolingConfigured": {
+      const claudeInScope = hasFile(
+        discovery,
+        (filePath) => filePath === "CLAUDE.md" || filePath.startsWith(".claude/"),
+      );
+
+      if (!claudeInScope) {
+        return makeResult(definition, "not_applicable", [], 0.85);
+      }
+
       const claudeEvidence = [...(signals.hasClaudeGuide ? ["CLAUDE.md"] : []), ...signals.claudeAssets].slice(0, 3);
       const claudeCount = signals.claudeAssets.length + (signals.hasClaudeGuide ? 1 : 0);
 

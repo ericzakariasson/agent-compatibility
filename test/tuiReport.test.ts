@@ -78,7 +78,7 @@ function makeReport(overrides: Partial<ScanReport> = {}): ScanReport {
       opportunities: [
         {
           checkId: "cursorToolingConfigured",
-          title: "Cursor tooling configured",
+          title: "Cursor project tooling",
           remediation: "Add project-specific .cursor rules, skills, or agents so Cursor has reusable repo context.",
           maxPoints: 2,
           evidence: [],
@@ -99,11 +99,11 @@ describe("renderTuiReport", () => {
 
     expect(output).toContain("┏");
     expect(output).toContain("42");
-    expect(output).toContain("Agent Compatibility Score");
-    expect(output).toContain("Workable today, but still missing a few important signals.");
+    expect(output).toContain("Agent compatibility (heuristic)");
+    expect(output).toContain("Mixed signals from files alone; some basics look present.");
     expect(output).toContain("node application repo / 3 open checks across 2 pillars");
-    expect(output).toContain("Problems");
-    expect(output).toContain("Linter configured: Add a linter and wire it into local validation or CI (4)");
+    expect(output).toContain("Open rubric / accelerator cues");
+    expect(output).toContain("Linter configured. Add a linter and wire it into local validation or");
   });
 
   it("includes accelerator issues in the problem list", () => {
@@ -156,8 +156,9 @@ describe("renderTuiReport", () => {
     );
 
     expect(output).toContain("node application repo / no open rubric checks / 1 accelerator issue");
-    expect(output).toContain("Agent guidance docs: Add AGENTS.md or CLAUDE.md with concise, repo-specific guidance");
-    expect(output).toContain("[AGENTS.md (450 words)] (1)");
+    expect(output).toContain("Agent guidance docs. Add AGENTS.md or CLAUDE.md with concise,");
+    expect(output).toContain("(AGENTS.md (450 words))");
+    expect(output).toContain("(1pt)");
   });
 
   it("shows a healthy footer when no issues remain", () => {
@@ -203,9 +204,9 @@ describe("renderTuiReport", () => {
 
     expect(output).toContain("┏");
     expect(output).toContain("88");
-    expect(output).toContain("Agent Compatibility Score");
-    expect(output).toContain("Ready for agent-driven work with only minor cleanup left.");
+    expect(output).toContain("Agent compatibility (heuristic)");
+    expect(output).toContain("Looks fairly agent-friendly from what the scan could see.");
     expect(output).toContain("node application repo / no open checks");
-    expect(output).toContain("No high-priority fixes surfaced in the scored rubric.");
+    expect(output).toContain("No open checks in this pass.");
   });
 });

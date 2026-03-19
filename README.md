@@ -2,7 +2,7 @@
 
 Measure how compatible a codebase is with autonomous agents.
 
-The CLI scans a local repository with deterministic rules, scores it from `1-100`, breaks the score down by pillar, and suggests the highest-impact fixes first.
+The CLI scans a local repository with deterministic file signals, estimates a `1-100` compatibility score, breaks it down by pillar, and lists **suggested** next steps (heuristic, not a quality verdict).
 
 It now separates:
 
@@ -22,6 +22,10 @@ It now separates:
 
 Each rule returns `pass`, `partial`, `fail`, or `not_applicable`. Partial rules get half credit. `not_applicable` rules are removed from the denominator.
 
+Coverage reporting is weighted lightly and ranked lower in “top fixes” than security, supply-chain, and CI fundamentals. Tests and runnable suites still matter; line coverage is treated as an optional visibility signal, not a core gate.
+
+**Dependency locking** treats any tracked file whose basename matches the curated list in `src/config/lockfileNames.ts` as a lock/pin signal (npm, pnpm, Yarn, Bun, Deno, Python stacks, Rust, Go, Ruby, PHP, .NET, Swift, Dart, Haskell, Nix, Terraform, Helm, Bazel, Conan, DVC, Spack, Homebrew bundle, and others — 50+ basenames, normalized case-insensitively).
+
 ## Agent accelerators
 
 The accelerator layer is reported separately. It does not replace or inflate the main compatibility rubric.
@@ -35,6 +39,8 @@ Current bonus signals include:
 - a curated dependency-to-MCP match for a few obvious cases such as database or browser tooling
 
 Missing accelerator signals are treated as missed opportunities, not as core compatibility failures.
+
+The Claude-specific accelerator is skipped entirely (no score impact, not listed) unless the repo already has `CLAUDE.md` or files under `.claude/`.
 
 ## Install
 

@@ -118,13 +118,13 @@ describe("scoreReport", () => {
       acceleratorResults: [
         makeAccelerator({
           id: "cursorMcpConfigured",
-          name: "Cursor MCP configured",
+          name: "Cursor MCP setup",
           maxPoints: 2,
           status: "pass",
         }),
         makeAccelerator({
           id: "claudeToolingConfigured",
-          name: "Claude tooling configured",
+          name: "Claude project tooling",
           maxPoints: 2,
           status: "pass",
         }),
@@ -134,5 +134,35 @@ describe("scoreReport", () => {
     expect(report.baseScore).toBe(80);
     expect(report.acceleratorBonus).toBe(4);
     expect(report.overallScore).toBe(80);
+  });
+
+  it("deprioritizes coverage in top recommendations when it would otherwise tie with other checks", () => {
+    const report = scoreReport({
+      scannedPath: "/tmp/example",
+      classification: makeClassification("application"),
+      discovery: makeDiscovery(),
+      checkResults: [
+        makeResult({
+          id: "coverageSignalPresent",
+          pillar: "testing",
+          name: "Coverage signal present",
+          weight: 3,
+          status: "fail",
+        }),
+        makeResult({
+          id: "securityScanConfigured",
+          pillar: "securityGovernance",
+          name: "Security scan configured",
+          weight: 3,
+          status: "fail",
+        }),
+      ],
+      acceleratorResults: [],
+    });
+
+    expect(report.recommendations.map((item) => item.checkId)).toEqual([
+      "securityScanConfigured",
+      "coverageSignalPresent",
+    ]);
   });
 });

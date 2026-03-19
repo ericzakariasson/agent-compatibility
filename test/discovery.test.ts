@@ -56,6 +56,18 @@ describe("discoverRepository", () => {
     expect(discovery.textByPath.get(".vscode/settings.json")).toContain("typescript.tsdk");
   });
 
+  it("detects known dependency lock basenames (e.g. bun.lock)", async () => {
+    const rootPath = await mkdtemp(path.join(os.tmpdir(), "agent-compatibility-"));
+    tempDirs.push(rootPath);
+
+    await writeFile(path.join(rootPath, "package.json"), JSON.stringify({ name: "x", version: "1.0.0" }, null, 2));
+    await writeFile(path.join(rootPath, "bun.lock"), "lockfileVersion 0\n");
+
+    const discovery = await discoverRepository(rootPath);
+
+    expect(discovery.lockfiles).toContain("bun.lock");
+  });
+
   it("detects ci configs, task files, build configs, and native ecosystems", async () => {
     const rootPath = await mkdtemp(path.join(os.tmpdir(), "agent-compatibility-"));
     tempDirs.push(rootPath);

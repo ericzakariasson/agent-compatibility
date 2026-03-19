@@ -118,8 +118,9 @@ export const DEFAULT_RUBRIC: CheckDefinition[] = [
     id: "coverageSignalPresent",
     pillar: "testing",
     name: "Coverage signal present",
-    weight: 3,
-    remediation: "Add coverage tooling, thresholds, or published reports.",
+    weight: 1,
+    remediation:
+      "Optional signal for agents and reviewers. Add coverage tooling, thresholds, or published reports if you want visible test-gap reporting.",
   },
   {
     id: "integrationCoverageWhenRelevant",
@@ -159,9 +160,9 @@ export const DEFAULT_RUBRIC: CheckDefinition[] = [
   {
     id: "contributionOrAgentGuidance",
     pillar: "documentation",
-    name: "Contribution or agent guidance",
+    name: "Agent workflow guidance",
     weight: 2,
-    remediation: "Add CONTRIBUTING.md, AGENTS.md, or equivalent workflow guidance.",
+    remediation: "Add AGENTS.md or equivalent agent-facing workflow guidance.",
   },
   {
     id: "sampleEnvProvided",

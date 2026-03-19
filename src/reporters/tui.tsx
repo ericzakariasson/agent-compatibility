@@ -4,6 +4,8 @@ import { Box, Text, render, renderToString } from "ink";
 
 import type { AcceleratorCheckResult, CheckResult, ScanReport } from "../core/types.js";
 
+import { ensureSentenceEnds } from "./sentences.js";
+
 export interface TuiRenderOptions {
   color?: boolean;
   verbose?: boolean;
@@ -125,33 +127,33 @@ function getOpenAcceleratorChecks(report: ScanReport): AcceleratorCheckResult[] 
 
 function getIssueText(check: CheckResult): string {
   const missedPoints = Math.max(1, Math.round(check.weight - check.awardedWeight));
-  return `${check.name}: ${trimSentence(check.remediation)} (${missedPoints})`;
+  return `${check.name}. ${ensureSentenceEnds(trimSentence(check.remediation))} (${missedPoints}pt)`;
 }
 
 function getAcceleratorIssueText(check: AcceleratorCheckResult): string {
   const missedPoints = Math.max(1, Math.round(check.maxPoints - check.awardedPoints));
-  const evidence = check.evidence[0] ? ` [${check.evidence[0]}]` : "";
-  return `${check.name}: ${trimSentence(check.remediation)}${evidence} (${missedPoints})`;
+  const evidence = check.evidence[0] ? ` (${check.evidence[0]})` : "";
+  return `${check.name}. ${ensureSentenceEnds(trimSentence(check.remediation))}${evidence} (${missedPoints}pt)`;
 }
 
 function getTitle(): string {
-  return "Agent Compatibility Score";
+  return "Agent compatibility (heuristic)";
 }
 
 function getScoreDescription(score: number): string {
   if (score <= 40) {
-    return "Needs core project signals before agent-driven work will feel safe.";
+    return "File signals look thin; agents may struggle without more repo scaffolding.";
   }
 
   if (score <= 60) {
-    return "Workable today, but still missing a few important signals.";
+    return "Mixed signals from files alone; some basics look present.";
   }
 
   if (score <= 80) {
-    return "Strong overall, with a few important gaps left to tighten.";
+    return "Mostly plausible for agents, with several file-signal gaps.";
   }
 
-  return "Ready for agent-driven work with only minor cleanup left.";
+  return "Looks fairly agent-friendly from what the scan could see.";
 }
 
 function buildSummaryLine(
@@ -273,11 +275,11 @@ function DashboardView(props: { report: ScanReport; options: Required<TuiRenderO
         </Box>
       </Box>
 
-      <Box flexDirection="column" marginTop={1}>
-        <Text bold>Problems</Text>
-        {openChecks.length === 0 && openAcceleratorChecks.length === 0 ? (
-          <Text>No high-priority fixes surfaced in the scored rubric.</Text>
-        ) : (
+        <Box flexDirection="column" marginTop={1}>
+          <Text bold>Open rubric / accelerator cues</Text>
+          {openChecks.length === 0 && openAcceleratorChecks.length === 0 ? (
+            <Text>No open checks in this pass.</Text>
+          ) : (
           <>
             {openChecks.map((check) => (
               <IssueRow key={check.id} text={getIssueText(check)} accentColor={palette.accent} useColor={options.color} />
@@ -299,7 +301,7 @@ function DashboardView(props: { report: ScanReport; options: Required<TuiRenderO
           <Text bold>Pillars</Text>
           {report.pillars.map((pillar) => (
             <Text key={pillar.id}>
-              - {pillar.name}: {pillar.applicableWeight === 0 ? "n/a" : `${pillar.score}/100`}
+              - {pillar.name} · {pillar.applicableWeight === 0 ? "n/a" : `${pillar.score}/100`}
             </Text>
           ))}
 

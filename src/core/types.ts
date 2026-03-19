@@ -11,7 +11,21 @@ export type PillarId =
   | "securityGovernance";
 
 export type RepoKind = "library" | "application" | "cli" | "monorepo" | "unknown";
-export type Ecosystem = "node" | "python" | "go" | "rust" | "c" | "cpp";
+export type Ecosystem =
+  | "node"
+  | "python"
+  | "go"
+  | "rust"
+  | "c"
+  | "cpp"
+  | "jvm"
+  | "ruby"
+  | "php"
+  | "dotnet"
+  | "swift"
+  | "elixir"
+  | "dart"
+  | "deno";
 export type MaturityBand = "Fragile" | "Basic" | "Functional" | "Standardized" | "Agent-Ready";
 
 export interface RepoClassification {

@@ -1,4 +1,26 @@
+import path from "node:path";
+
 import type { RepoClassification, RepoDiscovery, RepoKind } from "./types.js";
+
+const DOCKER_COMPOSE_BASENAMES = new Set([
+  "docker-compose.yml",
+  "docker-compose.yaml",
+  "compose.yml",
+  "compose.yaml",
+]);
+
+function hasDockerComposeFile(discovery: RepoDiscovery): boolean {
+  return discovery.filePaths.some((filePath) =>
+    DOCKER_COMPOSE_BASENAMES.has(path.basename(filePath).toLowerCase()),
+  );
+}
+
+function hasDockerfileLike(discovery: RepoDiscovery): boolean {
+  return discovery.filePaths.some((filePath) => {
+    const base = path.basename(filePath);
+    return /^dockerfile/i.test(base) || /^containerfile/i.test(base);
+  });
+}
 
 function dependencyNames(discovery: RepoDiscovery): Set<string> {
   const packageJson = discovery.packageJson;
@@ -56,13 +78,28 @@ function inferKind(discovery: RepoDiscovery): { kind: RepoKind; reasons: string[
     Boolean(packageJson?.bin) ||
     discovery.filePaths.some((filePath) => filePath.startsWith("bin/") || filePath.startsWith("cmd/")) ||
     scriptNames.some((script) => script === "cli" || script === "start:cli") ||
-    textMatches(discovery, /\bCommand\b|\bcommander\b|\byargs\b|\bclick\b|\bargparse\b/);
+    textMatches(
+      discovery,
+      /\bCommand\b|\bcommander\b|\byargs\b|\btyper\b|\bcobra\b|\burfave\/cli\b|\bclap\b|\bstructopt\b|\bclick\b|\bargparse\b/,
+    );
 
   const hasServerSignals =
-    ["express", "fastify", "koa", "hono", "@nestjs/core", "next"].some((name) => dependencies.has(name)) ||
-    hasFile(discovery, "Dockerfile") ||
-    hasFile(discovery, "docker-compose.yml") ||
-    hasFile(discovery, "docker-compose.yaml") ||
+    [
+      "express",
+      "fastify",
+      "koa",
+      "hono",
+      "@nestjs/core",
+      "next",
+      "fastapi",
+      "django",
+      "flask",
+      "starlette",
+      "uvicorn",
+      "gunicorn",
+    ].some((name) => dependencies.has(name)) ||
+    hasDockerfileLike(discovery) ||
+    hasDockerComposeFile(discovery) ||
     discovery.filePaths.some((filePath) => /(^|\/)(server|app|main)\.(ts|tsx|js|jsx|py|go|rs|c|cc|cpp|cxx)$/.test(filePath));
 
   const hasApplicationSignals =

@@ -1,21 +1,12 @@
 import type { AcceleratorCheckResult, CheckResult, PillarResult, ScanReport } from "../core/types.js";
 
-function formatStatus(status: CheckResult["status"] | AcceleratorCheckResult["status"]): string {
-  switch (status) {
-    case "pass":
-      return "pass";
-    case "partial":
-      return "partial";
-    case "fail":
-      return "fail";
-    case "not_applicable":
-      return "n/a";
-  }
-}
-
-function formatEvidence(evidence: string[]): string {
-  return evidence.length > 0 ? evidence.map((item) => `\`${item}\``).join(", ") : "none";
-}
+import {
+  ensureSentenceEnds,
+  formatAcceleratorCheckSentence,
+  formatOpportunitySentence,
+  formatRecommendationSentence,
+  formatRubricCheckSentence,
+} from "./sentences.js";
 
 function formatScore(score: number): string {
   return `${score}/100`;
@@ -62,7 +53,7 @@ function getOpenAcceleratorChecks(report: ScanReport): AcceleratorCheckResult[] 
 }
 
 function renderPriorityFixes(lines: string[], report: ScanReport): void {
-  lines.push("## Priority Fixes");
+  lines.push("## Suggested next steps");
 
   if (report.recommendations.length === 0) {
     lines.push("- None.");
@@ -71,12 +62,7 @@ function renderPriorityFixes(lines: string[], report: ScanReport): void {
   }
 
   for (const recommendation of report.recommendations) {
-    lines.push(
-      `- \`${recommendation.checkId}\` | pillar: \`${recommendation.pillar}\` | weight: ${recommendation.weight}`,
-    );
-    lines.push(`  - title: ${recommendation.title}`);
-    lines.push(`  - remediation: ${recommendation.remediation}`);
-    lines.push(`  - evidence: ${formatEvidence(recommendation.evidence)}`);
+    lines.push(`- ${formatRecommendationSentence(recommendation)}`);
   }
 
   lines.push("");
@@ -117,10 +103,7 @@ function renderOpenChecks(lines: string[], pillars: PillarResult[], acceleratorC
       });
 
     for (const check of checks) {
-      lines.push(`- \`${check.id}\` | status: \`${formatStatus(check.status)}\` | weight: ${check.weight}`);
-      lines.push(`  - title: ${check.name}`);
-      lines.push(`  - remediation: ${check.remediation}`);
-      lines.push(`  - evidence: ${formatEvidence(check.evidence)}`);
+      lines.push(`- ${formatRubricCheckSentence(check)} ${ensureSentenceEnds(check.remediation)}`);
     }
 
     lines.push("");
@@ -130,10 +113,7 @@ function renderOpenChecks(lines: string[], pillars: PillarResult[], acceleratorC
     lines.push("### Agent accelerators");
 
     for (const check of acceleratorChecks) {
-      lines.push(`- \`${check.id}\` | status: \`${formatStatus(check.status)}\` | points: ${check.awardedPoints}/${check.maxPoints}`);
-      lines.push(`  - title: ${check.name}`);
-      lines.push(`  - remediation: ${check.remediation}`);
-      lines.push(`  - evidence: ${formatEvidence(check.evidence)}`);
+      lines.push(`- ${formatAcceleratorCheckSentence(check)} ${ensureSentenceEnds(check.remediation)}`);
     }
 
     lines.push("");
@@ -145,9 +125,7 @@ function renderPillarScores(lines: string[], report: ScanReport): void {
 
   for (const pillar of report.pillars) {
     const score = pillar.applicableWeight === 0 ? "n/a" : formatScore(pillar.score);
-    lines.push(
-      `- ${pillar.name}: ${score} (awarded ${pillar.awardedWeight} of ${pillar.applicableWeight} applicable points)`,
-    );
+    lines.push(`- ${pillar.name} **${score}** (${pillar.awardedWeight}/${pillar.applicableWeight} pts).`);
   }
 
   lines.push("");
@@ -155,18 +133,13 @@ function renderPillarScores(lines: string[], report: ScanReport): void {
 
 function renderAccelerators(lines: string[], report: ScanReport): void {
   lines.push("## Agent Accelerators");
-  lines.push(`- bonus: ${report.accelerators.bonusPoints}/${report.accelerators.maxBonusPoints}`);
+  lines.push(`- Bonus **${report.accelerators.bonusPoints}/${report.accelerators.maxBonusPoints}**.`);
 
   if (report.accelerators.checks.length === 0) {
-    lines.push("- checks: none");
+    lines.push("- None recorded.");
   } else {
-    for (const check of report.accelerators.checks) {
-      lines.push(
-        `- \`${check.id}\` | status: \`${formatStatus(check.status)}\` | points: ${check.awardedPoints}/${check.maxPoints}`,
-      );
-      lines.push(`  - title: ${check.name}`);
-      lines.push(`  - remediation: ${check.remediation}`);
-      lines.push(`  - evidence: ${formatEvidence(check.evidence)}`);
+    for (const check of report.accelerators.checks.filter((entry) => entry.status !== "not_applicable")) {
+      lines.push(`- ${formatAcceleratorCheckSentence(check)} ${ensureSentenceEnds(check.remediation)}`);
     }
   }
 
@@ -183,10 +156,7 @@ function renderOpportunities(lines: string[], report: ScanReport): void {
   }
 
   for (const opportunity of report.accelerators.opportunities) {
-    lines.push(`- \`${opportunity.checkId}\` | max_points: ${opportunity.maxPoints}`);
-    lines.push(`  - title: ${opportunity.title}`);
-    lines.push(`  - remediation: ${opportunity.remediation}`);
-    lines.push(`  - evidence: ${formatEvidence(opportunity.evidence)}`);
+    lines.push(`- ${formatOpportunitySentence(opportunity)}`);
   }
 
   lines.push("");
@@ -218,17 +188,15 @@ export function renderMarkdownReport(report: ScanReport): string {
 
   lines.push("# Agent Compatibility Report");
   lines.push("");
+  lines.push("_Heuristic pass over repo files._");
+  lines.push("");
   lines.push("## Summary");
-  lines.push(`- score: ${formatScore(report.overallScore)}`);
-  lines.push(`- maturity: ${report.maturity}`);
-  lines.push(`- repo_type: ${report.classification.kind}`);
-  lines.push(`- ecosystems: ${report.ecosystems.length > 0 ? report.ecosystems.join(", ") : "unknown"}`);
-  lines.push(`- scanned_path: \`${report.scannedPath}\``);
-  lines.push(`- open_checks: ${openChecks.length + openAcceleratorChecks.length}`);
-  lines.push(`- rubric_open_checks: ${openChecks.length}`);
-  lines.push(`- accelerator_issues: ${openAcceleratorChecks.length}`);
-  lines.push(`- affected_pillars: ${affectedPillars}`);
-  lines.push(`- accelerator_bonus: ${report.accelerators.bonusPoints}/${report.accelerators.maxBonusPoints}`);
+  const ecosystems = report.ecosystems.length > 0 ? report.ecosystems.join(", ") : "unknown";
+  lines.push(
+    `- **${formatScore(report.overallScore)}** (${report.maturity}) · ${report.classification.kind} · ${ecosystems}`,
+  );
+  lines.push(`- \`${report.scannedPath}\` · **${openChecks.length + openAcceleratorChecks.length}** open (${openChecks.length} rubric · ${openAcceleratorChecks.length} accelerator) · **${affectedPillars}** pillars with gaps · accelerator **${report.accelerators.bonusPoints}/${report.accelerators.maxBonusPoints}**`,
+  );
   lines.push("");
 
   renderPriorityFixes(lines, report);

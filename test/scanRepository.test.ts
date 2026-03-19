@@ -70,6 +70,7 @@ describe("scanRepository", () => {
     expect(report.acceleratorBonus).toBe(0);
     expect(getCheck(report, "readmePresent").status).toBe("pass");
     expect(getCheck(report, "ciWorkflowPresent").status).toBe("fail");
+    expect(getAcceleratorCheck(report, "claudeToolingConfigured").status).toBe("not_applicable");
   });
 
   it("scores a standardized service as high compatibility", async () => {

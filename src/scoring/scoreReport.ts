@@ -13,6 +13,31 @@ function clampScore(value: number): number {
   return Math.min(100, Math.max(1, value));
 }
 
+/** Checks we still score, but deprioritize in “top fixes” vs security, supply chain, and CI basics. */
+const LOWER_PRIORITY_RECOMMENDATION_IDS = new Set<string>(["coverageSignalPresent"]);
+
+function compareRecommendationCandidates(left: CheckResult, right: CheckResult): number {
+  if (left.awardedWeight !== right.awardedWeight) {
+    return left.awardedWeight - right.awardedWeight;
+  }
+
+  if (left.weight !== right.weight) {
+    return right.weight - left.weight;
+  }
+
+  if (left.status !== right.status) {
+    return left.status === "fail" ? -1 : 1;
+  }
+
+  const leftLow = LOWER_PRIORITY_RECOMMENDATION_IDS.has(left.id);
+  const rightLow = LOWER_PRIORITY_RECOMMENDATION_IDS.has(right.id);
+  if (leftLow !== rightLow) {
+    return leftLow ? 1 : -1;
+  }
+
+  return left.name.localeCompare(right.name);
+}
+
 function getMaturityBand(score: number): MaturityBand {
   if (score <= 20) {
     return "Fragile";
@@ -108,21 +133,7 @@ export function scoreReport(args: {
 
   const recommendations = checkResults
     .filter((result) => result.status === "fail" || result.status === "partial")
-    .sort((left, right) => {
-      if (left.awardedWeight !== right.awardedWeight) {
-        return left.awardedWeight - right.awardedWeight;
-      }
-
-      if (left.weight !== right.weight) {
-        return right.weight - left.weight;
-      }
-
-      if (left.status !== right.status) {
-        return left.status === "fail" ? -1 : 1;
-      }
-
-      return left.name.localeCompare(right.name);
-    })
+    .sort(compareRecommendationCandidates)
     .slice(0, 5)
     .map((result) => ({
       pillar: PILLAR_NAMES[result.pillar],

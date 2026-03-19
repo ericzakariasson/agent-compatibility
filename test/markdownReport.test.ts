@@ -89,7 +89,7 @@ function makeReport(overrides: Partial<ScanReport> = {}): ScanReport {
       opportunities: [
         {
           checkId: "cursorToolingConfigured",
-          title: "Cursor tooling configured",
+          title: "Cursor project tooling",
           remediation: "Add project-specific .cursor rules, skills, or agents so Cursor has reusable repo context.",
           maxPoints: 2,
           evidence: [],
@@ -115,23 +115,28 @@ describe("renderMarkdownReport", () => {
     const output = renderMarkdownReport(makeReport());
 
     expect(output).toContain("# Agent Compatibility Report");
+    expect(output).toContain("_Heuristic pass over repo files");
     expect(output).toContain("## Summary");
-    expect(output).toContain("- score: 42/100");
-    expect(output).toContain("- scanned_path: `.`");
-    expect(output).toContain("- open_checks: 4");
-    expect(output).toContain("- rubric_open_checks: 3");
-    expect(output).toContain("- accelerator_issues: 1");
-    expect(output).toContain("## Priority Fixes");
-    expect(output).toContain("- `linterConfigured` | pillar: `Style & Validation` | weight: 4");
+    expect(output).toContain("- **42/100** (Basic) · application · node");
+    expect(output).toContain("`.` · **4** open (3 rubric · 1 accelerator) · **2** pillars with gaps · accelerator **1/8**");
+    expect(output).toContain("## Suggested next steps");
+    expect(output).toContain(
+      "- Linter configured (Style & Validation). Add a linter and wire it into local validation or CI.",
+    );
     expect(output).toContain("## Open Checks");
     expect(output).toContain("### Style & Validation");
-    expect(output).toContain("- `formatterConfigured` | status: `partial` | weight: 4");
+    expect(output).toContain(
+      "- Formatter configured, partial (formatter signal found). Add a formatter and expose it through a script or task.",
+    );
     expect(output).toContain("### Agent accelerators");
-    expect(output).toContain("- `agentGuidanceDocs` | status: `partial` | points: 1/2");
+    expect(output).toContain(
+      "- Agent guidance docs, partial (README). Add AGENTS.md or CLAUDE.md so agents have project context.",
+    );
     expect(output).toContain("## Agent Accelerators");
-    expect(output).toContain("- `agentGuidanceDocs` | status: `partial` | points: 1/2");
     expect(output).toContain("## Agent Tooling Opportunities");
-    expect(output).toContain("- `cursorToolingConfigured` | max_points: 2");
+    expect(output).toContain(
+      "- Cursor project tooling. Add project-specific .cursor rules, skills, or agents so Cursor has reusable repo context.",
+    );
     expect(output).toContain("## Warnings");
     expect(output).toContain("- Repository root could not be fully classified.");
   });
@@ -175,9 +180,8 @@ describe("renderMarkdownReport", () => {
       }),
     );
 
-    expect(output).toContain("- open_checks: 0");
-    expect(output).toContain("- accelerator_issues: 0");
-    expect(output).toContain("## Priority Fixes");
+    expect(output).toContain("**0** open (0 rubric · 0 accelerator)");
+    expect(output).toContain("## Suggested next steps");
     expect(output).toContain("- None.");
     expect(output).toContain("## Open Checks");
     expect(output).toContain("## Warnings");

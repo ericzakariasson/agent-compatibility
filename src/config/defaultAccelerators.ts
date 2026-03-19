@@ -9,19 +9,19 @@ export const DEFAULT_ACCELERATORS: AcceleratorCheckDefinition[] = [
   },
   {
     id: "cursorToolingConfigured",
-    name: "Cursor tooling configured",
+    name: "Cursor project tooling",
     maxPoints: 2,
     remediation: "Add project-specific .cursor rules, skills, or agents so Cursor has reusable repo context.",
   },
   {
     id: "cursorMcpConfigured",
-    name: "Cursor MCP configured",
+    name: "Cursor MCP setup",
     maxPoints: 2,
     remediation: "Add .cursor/mcp.json with at least one working MCP server for repo-specific workflows.",
   },
   {
     id: "claudeToolingConfigured",
-    name: "Claude tooling configured",
+    name: "Claude project tooling",
     maxPoints: 2,
     remediation: "Add CLAUDE.md or .claude agents or commands so Claude-based workflows have project context.",
   },

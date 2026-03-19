@@ -1,6 +1,19 @@
 import path from "node:path";
 
+import { docsPaths, docsText } from "../core/repoDocs.js";
 import type { CheckContext, CheckDefinition, CheckResult, CheckStatus, PackageJsonData, RepoDiscovery } from "../core/types.js";
+
+function isPyprojectPath(filePath: string): boolean {
+  return path.basename(filePath) === "pyproject.toml";
+}
+
+function textByBasename(discovery: RepoDiscovery, basename: string): string {
+  const key = basename.toLowerCase();
+  return [...discovery.textByPath.entries()]
+    .filter(([filePath]) => path.basename(filePath).toLowerCase() === key)
+    .map(([, content]) => content)
+    .join("\n");
+}
 
 function dependencyNames(packageJson: PackageJsonData | null): string[] {
   if (!packageJson) {
@@ -65,22 +78,6 @@ function collectEvidence(discovery: RepoDiscovery, predicate: (filePath: string)
 
 function uniqueEvidence(values: string[]): string[] {
   return [...new Set(values)];
-}
-
-function docsPaths(discovery: RepoDiscovery): string[] {
-  return discovery.filePaths.filter(
-    (filePath) =>
-      /^README/i.test(path.basename(filePath)) ||
-      /^CONTRIBUTING/i.test(path.basename(filePath)) ||
-      /^AGENTS\.md$/i.test(path.basename(filePath)) ||
-      filePath.startsWith("docs/"),
-  );
-}
-
-function docsText(discovery: RepoDiscovery): string {
-  return docsPaths(discovery)
-    .map((filePath) => discovery.textByPath.get(filePath) ?? "")
-    .join("\n");
 }
 
 function ciConfigText(discovery: RepoDiscovery): string {
@@ -173,17 +170,21 @@ function collectSurfaceEvidence(
   return uniqueEvidence(evidence).slice(0, 3);
 }
 
-const FORMATTER_PATTERN = /\b(prettier|biome|black|rustfmt|cargo fmt|gofmt|go fmt|clang-format|checkpatch\.pl)\b/i;
-const LINTER_PATTERN = /\b(eslint|biome|ruff|flake8|pylint|golangci-lint|clippy|pyright|mypy|clang-tidy|cppcheck)\b/i;
-const STATIC_ANALYSIS_PATTERN = /\b(tsc|pyright|mypy|go vet|golangci-lint|cargo check|cargo clippy|clang-tidy|cppcheck)\b/i;
-const TEST_PATTERN = /\b(vitest|jest|mocha|ava|tap|pytest|unittest|go test|cargo test|ctest)\b/i;
-const COVERAGE_PATTERN = /\b(--coverage|coverage|coverageThreshold|nyc|c8|codecov|pytest-cov|lcov)\b/i;
+const FORMATTER_PATTERN =
+  /\b(prettier|biome|black|rustfmt|cargo fmt|gofmt|go fmt|clang-format|checkpatch\.pl|google-java-format|scalafmt|php-cs-fixer|rubocop|dart format|csharpier|dotnet format)\b/i;
+const LINTER_PATTERN =
+  /\b(eslint|biome|ruff|flake8|pylint|golangci-lint|clippy|pyright|mypy|clang-tidy|cppcheck|shellcheck|stylelint|phpcs|phpstan|psalm|detekt|ktlint|swiftlint|rubocop)\b/i;
+const STATIC_ANALYSIS_PATTERN =
+  /\b(tsc|pyright|mypy|go vet|golangci-lint|cargo check|cargo clippy|clang-tidy|cppcheck|javac|kotlinc|mvn\s+-D|gradle\s+check|dotnet\s+build|swift build|dart analyze)\b/i;
+const TEST_PATTERN =
+  /\b(vitest|jest|mocha|ava|tap|pytest|unittest|go test|cargo test|ctest|playwright|cypress|junit|phpunit|rspec|minitest)\b/i;
+const COVERAGE_PATTERN = /\b(--coverage|coverage|coverageThreshold|nyc|c8|codecov|pytest-cov|lcov|coverlet|opencover)\b/i;
 const SECURITY_PATTERN =
-  /\b(npm audit|pnpm audit|yarn npm audit|cargo audit|pip-audit|bandit|safety|snyk|trivy|semgrep|gitleaks|gosec|codeql|github\/codeql-action|dependency-review-action|osv-scanner|trufflehog|grype|anchore|git-secrets)\b/i;
+  /\b(npm audit|pnpm audit|yarn npm audit|cargo audit|pip-audit|bandit|safety|snyk|trivy|semgrep|gitleaks|gosec|codeql|github\/codeql-action|dependency-review-action|osv-scanner|trufflehog|grype|anchore|git-secrets|checkov|renovate|renovatebot)\b/i;
 const BUILD_COMMAND_PATTERN =
-  /\b(cmake --build|meson compile|cargo build|cargo install|go build|ninja|make(?:\s+(?:all|build|compile|package))?|build|compile|package)\b/i;
+  /\b(cmake --build|meson compile|cargo build|cargo install|go build|ninja|make(?:\s+(?:all|build|compile|package))?|mvn\s|gradle\s|dotnet\s+build|swift build|dart build|bazel build|build|compile|package)\b/i;
 const CI_VALIDATION_PATTERN =
-  /\b(test|pytest|vitest|jest|lint|eslint|ruff|mypy|pyright|build|check|validate|coverage|audit|ctest|go test|go vet|cargo test|cargo check|cargo clippy|clang-tidy|cppcheck|clang-format|checkpatch\.pl)\b/i;
+  /\b(test|pytest|vitest|jest|lint|eslint|ruff|mypy|pyright|build|check|validate|coverage|audit|ctest|go test|go vet|cargo test|cargo check|cargo clippy|clang-tidy|cppcheck|clang-format|checkpatch\.pl|playwright|cypress|gradle|mvn)\b/i;
 
 function makeResult(
   definition: CheckDefinition,
@@ -228,7 +229,7 @@ function formatterSignals(discovery: RepoDiscovery): { configured: boolean; wire
   const configured =
     configFiles.length > 0 ||
     hasDependency(discovery.packageJson, ["prettier", "@biomejs/biome"]) ||
-    hasText(discovery, /\[tool\.black\]|\bblack\b/, (filePath) => filePath === "pyproject.toml") ||
+    hasText(discovery, /\[tool\.black\]|\bblack\b/, isPyprojectPath) ||
     scriptConfigured ||
     taskConfigured ||
     ciConfigured ||
@@ -283,7 +284,7 @@ function lintSignals(discovery: RepoDiscovery): { configured: boolean; wired: bo
       "pyright",
       "mypy",
     ]) ||
-    hasText(discovery, /\[tool\.ruff\]|\[tool\.mypy\]|\[tool\.pyright\]/, (filePath) => filePath === "pyproject.toml");
+    hasText(discovery, /\[tool\.ruff\]|\[tool\.mypy\]|\[tool\.pyright\]/, isPyprojectPath);
 
   const scriptConfigured = scriptMatches(discovery, LINTER_PATTERN);
   const taskConfigured = taskFileMatches(discovery, LINTER_PATTERN);
@@ -390,26 +391,34 @@ function languageToolingSignals(discovery: RepoDiscovery): { configured: boolean
 
 function staticCheckSignals(discovery: RepoDiscovery): { configured: boolean; wired: boolean; strict: "pass" | "partial" | "na"; evidence: string[] } {
   const tsconfig = discovery.textByPath.get("tsconfig.json") ?? "";
-  const pyproject = discovery.textByPath.get("pyproject.toml") ?? "";
+  const pyproject = textByBasename(discovery, "pyproject.toml");
   const languageTooling = languageToolingSignals(discovery);
-  const typedOrNativeEcosystem = discovery.ecosystems.some((ecosystem) => ["go", "rust", "c", "cpp"].includes(ecosystem));
+  const typedOrNativeEcosystem = discovery.ecosystems.some((ecosystem) =>
+    ["go", "rust", "c", "cpp", "jvm", "dotnet", "swift", "ruby", "php", "dart", "elixir", "deno"].includes(ecosystem),
+  );
   const configFiles = uniqueEvidence([
     ...collectEvidence(
       discovery,
       (filePath) =>
         /^tsconfig\.json$/i.test(path.basename(filePath)) ||
+        /^deno\.jsonc?$/i.test(path.basename(filePath)) ||
         /^pyrightconfig\.json$/i.test(path.basename(filePath)) ||
         /^mypy\.ini$/i.test(path.basename(filePath)) ||
         /^go\.mod$/i.test(path.basename(filePath)) ||
         /^Cargo\.toml$/i.test(path.basename(filePath)) ||
+        /^pom\.xml$/i.test(path.basename(filePath)) ||
+        /^build\.gradle(\.kts)?$/i.test(path.basename(filePath)) ||
+        /^settings\.gradle(\.kts)?$/i.test(path.basename(filePath)) ||
+        /\.(csproj|fsproj|vbproj)$/i.test(path.basename(filePath)) ||
+        /^Package\.swift$/i.test(path.basename(filePath)) ||
+        /^mix\.exs$/i.test(path.basename(filePath)) ||
+        /^pubspec\.yaml$/i.test(path.basename(filePath)) ||
         /^CMakeLists\.txt$/i.test(path.basename(filePath)) ||
         /^CMakePresets\.json$/i.test(path.basename(filePath)) ||
         /^meson\.build$/i.test(path.basename(filePath)) ||
         /^compile_commands\.json$/i.test(path.basename(filePath)),
     ),
-    ...(hasText(discovery, /\[tool\.pyright\]|\[tool\.mypy\]/, (filePath) => filePath === "pyproject.toml")
-      ? ["pyproject.toml"]
-      : []),
+    ...(hasText(discovery, /\[tool\.pyright\]|\[tool\.mypy\]/, isPyprojectPath) ? ["pyproject.toml"] : []),
     ...(hasDependency(discovery.packageJson, ["typescript", "pyright", "mypy"]) ? ["package.json"] : []),
   ]);
 
@@ -422,8 +431,14 @@ function staticCheckSignals(discovery: RepoDiscovery): { configured: boolean; wi
   const configured =
     Boolean(tsconfig) ||
     hasDependency(discovery.packageJson, ["typescript", "pyright", "mypy"]) ||
-    hasText(discovery, /\[tool\.pyright\]|\[tool\.mypy\]/, (filePath) => filePath === "pyproject.toml") ||
-    hasFile(discovery, (filePath) => /^go\.mod$/i.test(path.basename(filePath)) || /^Cargo\.toml$/i.test(path.basename(filePath))) ||
+    hasText(discovery, /\[tool\.pyright\]|\[tool\.mypy\]/, isPyprojectPath) ||
+    hasFile(
+      discovery,
+      (filePath) =>
+        /^go\.mod$/i.test(path.basename(filePath)) ||
+        /^Cargo\.toml$/i.test(path.basename(filePath)) ||
+        /^deno\.jsonc?$/i.test(path.basename(filePath)),
+    ) ||
     (typedOrNativeEcosystem && (discovery.taskFiles.length > 0 || discovery.buildConfigFiles.length > 0)) ||
     languageTooling.configured;
 
@@ -432,8 +447,16 @@ function staticCheckSignals(discovery: RepoDiscovery): { configured: boolean; wi
   let strict: "pass" | "partial" | "na" = "na";
   if (tsconfig) {
     strict = /"strict"\s*:\s*true/.test(tsconfig) ? "pass" : "partial";
-  } else if (pyproject || hasFile(discovery, (filePath) => filePath === "pyrightconfig.json" || filePath === "mypy.ini")) {
-    strict = /\bstrict\s*=\s*true\b|typeCheckingMode\s*=\s*"strict"/.test(pyproject + (discovery.textByPath.get("pyrightconfig.json") ?? "") + (discovery.textByPath.get("mypy.ini") ?? ""))
+  } else if (
+    pyproject ||
+    hasFile(
+      discovery,
+      (filePath) => path.basename(filePath) === "pyrightconfig.json" || path.basename(filePath) === "mypy.ini",
+    )
+  ) {
+    strict = /\bstrict\s*=\s*true\b|typeCheckingMode\s*=\s*"strict"/.test(
+      pyproject + textByBasename(discovery, "pyrightconfig.json") + textByBasename(discovery, "mypy.ini"),
+    )
       ? "pass"
       : "partial";
   }
@@ -466,7 +489,7 @@ function testSignals(discovery: RepoDiscovery): { configured: boolean; evidence:
     buildConfigured ||
     ciConfigured ||
     repoRootTestTarget ||
-    hasText(discovery, /\[tool\.pytest\.ini_options\]|\[pytest\]/, (filePath) => filePath === "pyproject.toml") ||
+    hasText(discovery, /\[tool\.pytest\.ini_options\]|\[pytest\]/, isPyprojectPath) ||
     hasText(discovery, /\bdescribe\(|\bit\(|\btest\(/, (filePath) => filePath.endsWith(".test.ts") || filePath.endsWith(".spec.ts"));
 
   const evidence: string[] = [];
@@ -553,7 +576,6 @@ function evaluateCheck(definition: CheckDefinition, context: CheckContext): Chec
   const docText = docsText(discovery);
   const hasReadme = hasFile(discovery, (filePath) => /^README/i.test(path.basename(filePath)));
   const hasDocsFolder = hasFile(discovery, (filePath) => filePath.startsWith("docs/"));
-  const hasContributing = hasFile(discovery, (filePath) => /^CONTRIBUTING/i.test(path.basename(filePath)));
   const hasAgentsGuide = hasFile(discovery, (filePath) => /^AGENTS\.md$/i.test(path.basename(filePath)));
   const hasCodeowners = hasFile(discovery, (filePath) => /(^|\/)CODEOWNERS$/i.test(filePath));
   const envDetected = envUsageDetected(discovery);
@@ -641,8 +663,12 @@ function evaluateCheck(definition: CheckDefinition, context: CheckContext): Chec
       const buildRelevant =
         classification.kind === "application" ||
         classification.kind === "monorepo" ||
-        discovery.sourceFiles.some((filePath) => /\.(ts|tsx|rs|go|c|cc|cpp|cxx)$/.test(filePath)) ||
-        discovery.ecosystems.some((ecosystem) => ecosystem === "c" || ecosystem === "cpp") ||
+        discovery.sourceFiles.some((filePath) =>
+          /\.(ts|tsx|rs|go|c|cc|cpp|cxx|java|kt|kts|scala|cs|swift|php|rb|dart)$/.test(filePath),
+        ) ||
+        discovery.ecosystems.some((ecosystem) =>
+          ["c", "cpp", "jvm", "dotnet", "swift", "ruby", "php", "dart", "elixir", "python", "node", "deno"].includes(ecosystem),
+        ) ||
         discovery.taskFiles.length > 0 ||
         buildMetadataPresent ||
         Boolean(scripts.build) ||
@@ -874,13 +900,13 @@ function evaluateCheck(definition: CheckDefinition, context: CheckContext): Chec
       return makeResult(definition, "fail", ["environment usage detected but not documented"], 0.85);
 
     case "contributionOrAgentGuidance":
-      if (hasContributing || hasAgentsGuide) {
-        return makeResult(definition, "pass", hasAgentsGuide ? ["AGENTS.md"] : ["CONTRIBUTING.md"], 0.95);
+      if (hasAgentsGuide) {
+        return makeResult(definition, "pass", ["AGENTS.md"], 0.95);
       }
       if (/\bcontribut/i.test(docText)) {
         return makeResult(definition, "partial", ["README"], 0.6);
       }
-      return makeResult(definition, "fail", ["no contribution or agent guidance found"], 0.9);
+      return makeResult(definition, "fail", ["no agent workflow guidance found"], 0.9);
 
     case "sampleEnvProvided":
       if (!envDetected) {
@@ -908,7 +934,7 @@ function evaluateCheck(definition: CheckDefinition, context: CheckContext): Chec
           ].includes(filePath),
         ) ||
         Boolean(discovery.packageJson?.engines) ||
-        hasText(discovery, /\brequires-python\s*=\s*["'][^"']+["']/, (filePath) => filePath === "pyproject.toml") ||
+        hasText(discovery, /\brequires-python\s*=\s*["'][^"']+["']/, isPyprojectPath) ||
         hasText(discovery, /^go\s+\d+\.\d+/m, (filePath) => filePath === "go.mod");
 
       if (hasPinnedToolchain) {

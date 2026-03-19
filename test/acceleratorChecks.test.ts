@@ -39,6 +39,19 @@ function repeatWords(count: number): string {
   return Array.from({ length: count }, (_, index) => `word${index + 1}`).join(" ");
 }
 
+function getClaudeToolingResult(discovery: RepoDiscovery): AcceleratorCheckResult {
+  const result = runAcceleratorChecks(DEFAULT_ACCELERATORS, {
+    discovery,
+    classification: makeClassification(),
+  }).find((entry) => entry.id === "claudeToolingConfigured");
+
+  if (!result) {
+    throw new Error("Missing claudeToolingConfigured result");
+  }
+
+  return result;
+}
+
 function getAgentGuidanceResult(discovery: RepoDiscovery): AcceleratorCheckResult {
   const result = runAcceleratorChecks(DEFAULT_ACCELERATORS, {
     discovery,
@@ -52,7 +65,40 @@ function getAgentGuidanceResult(discovery: RepoDiscovery): AcceleratorCheckResul
   return result;
 }
 
+function getAcceleratorResult(discovery: RepoDiscovery, id: string): AcceleratorCheckResult {
+  const result = runAcceleratorChecks(DEFAULT_ACCELERATORS, {
+    discovery,
+    classification: makeClassification(),
+  }).find((entry) => entry.id === id);
+
+  if (!result) {
+    throw new Error(`Missing accelerator result ${id}`);
+  }
+
+  return result;
+}
+
 describe("runAcceleratorChecks", () => {
+  it("skips Claude accelerator when the repo has no Claude-specific paths", () => {
+    const result = getClaudeToolingResult(makeDiscovery());
+
+    expect(result.status).toBe("not_applicable");
+    expect(result.awardedPoints).toBe(0);
+    expect(result.evidence).toEqual([]);
+  });
+
+  it("evaluates Claude accelerator when CLAUDE.md exists", () => {
+    const result = getClaudeToolingResult(
+      makeDiscovery({
+        filePaths: ["CLAUDE.md"],
+        textByPath: new Map([["CLAUDE.md", repeatWords(50)]]),
+      }),
+    );
+
+    expect(result.status).toBe("partial");
+    expect(result.evidence).toContain("CLAUDE.md");
+  });
+
   it("passes concise root guidance docs", () => {
     const result = getAgentGuidanceResult(
       makeDiscovery({
@@ -93,5 +139,28 @@ describe("runAcceleratorChecks", () => {
     expect(result.status).toBe("fail");
     expect(result.awardedPoints).toBe(0);
     expect(result.evidence).toEqual(["AGENTS.md (80 words)", "CLAUDE.md (950 words)"]);
+  });
+
+  it("passes dependencyMcpAlignment when LLM deps match an MCP server id", () => {
+    const pkg = { name: "x", version: "1.0.0", dependencies: { openai: "4.0.0" } };
+    const discovery = makeDiscovery({
+      filePaths: [".cursor/mcp.json", "package.json"],
+      packageJson: pkg,
+      textByPath: new Map([
+        ["package.json", JSON.stringify(pkg, null, 2)],
+        [
+          ".cursor/mcp.json",
+          JSON.stringify({
+            mcpServers: {
+              openai: { command: "npx", args: ["-y", "@modelcontextprotocol/server-openai"] },
+            },
+          }),
+        ],
+      ]),
+    });
+
+    const result = getAcceleratorResult(discovery, "dependencyMcpAlignment");
+    expect(result.status).toBe("pass");
+    expect(result.evidence.some((line) => line.includes("llm"))).toBe(true);
   });
 });
