@@ -4,7 +4,7 @@ import type { RepoDiscovery } from "./types.js";
 
 /** Root-level and `docs/` markdown-style paths aggregated for checks. */
 const ROOT_DOC_BASENAME =
-  /^(README|CONTRIBUTING|CHANGELOG|SECURITY|GOVERNANCE|AGENTS\.md|CLAUDE\.md|CODE_OF_CONDUCT)/i;
+  /^(README|CONTRIBUTING|CHANGELOG|SECURITY|GOVERNANCE|AGENTS\.md|CODE_OF_CONDUCT)/i;
 
 export function docsPaths(discovery: RepoDiscovery): string[] {
   return discovery.filePaths.filter(

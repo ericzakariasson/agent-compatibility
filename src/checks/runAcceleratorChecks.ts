@@ -26,7 +26,6 @@ interface DependencyCategory {
 
 interface AcceleratorSignals {
   hasAgentsGuide: boolean;
-  hasClaudeGuide: boolean;
   rootGuidanceDocs: RootGuidanceDoc[];
   docsText: string;
   cursorAssets: string[];
@@ -37,13 +36,13 @@ interface AcceleratorSignals {
 }
 
 interface RootGuidanceDoc {
-  filePath: "AGENTS.md" | "CLAUDE.md";
+  filePath: "AGENTS.md";
   wordCount: number | null;
   status: "concise" | "verbose" | "too_long" | "unreadable";
   evidence: string;
 }
 
-const ROOT_GUIDANCE_DOCS = ["AGENTS.md", "CLAUDE.md"] as const;
+const ROOT_GUIDANCE_DOCS = ["AGENTS.md"] as const;
 const ROOT_GUIDANCE_DOC_PASS_WORD_LIMIT = 400;
 const ROOT_GUIDANCE_DOC_FAIL_WORD_LIMIT = 900;
 
@@ -279,7 +278,6 @@ function buildSignals(discovery: RepoDiscovery): AcceleratorSignals {
 
   return {
     hasAgentsGuide: discovery.filePaths.includes("AGENTS.md"),
-    hasClaudeGuide: discovery.filePaths.includes("CLAUDE.md"),
     rootGuidanceDocs: getRootGuidanceDocs(discovery),
     docsText: repoDocsText(discovery),
     cursorAssets: assetPrefixes(discovery, [".cursor/skills/", ".cursor/agents/", ".cursor/rules/"]),
@@ -311,7 +309,7 @@ function evaluateAccelerator(
       if (/\bagent\b|\bcursor\b|\bclaude\b/i.test(signals.docsText)) {
         return makeResult(definition, "partial", ["README"], 0.55);
       }
-      return makeResult(definition, "fail", ["no AGENTS.md or CLAUDE.md found"], 0.9);
+      return makeResult(definition, "fail", ["no AGENTS.md found"], 0.9);
 
     case "cursorToolingConfigured":
       if (signals.cursorAssets.length >= 2) {
@@ -350,17 +348,14 @@ function evaluateAccelerator(
       return makeResult(definition, "fail", ["no .cursor/mcp.json found"], 0.9);
 
     case "claudeToolingConfigured": {
-      const claudeInScope = hasFile(
-        discovery,
-        (filePath) => filePath === "CLAUDE.md" || filePath.startsWith(".claude/"),
-      );
+      const claudeInScope = hasFile(discovery, (filePath) => filePath.startsWith(".claude/"));
 
       if (!claudeInScope) {
         return makeResult(definition, "not_applicable", [], 0.85);
       }
 
-      const claudeEvidence = [...(signals.hasClaudeGuide ? ["CLAUDE.md"] : []), ...signals.claudeAssets].slice(0, 3);
-      const claudeCount = signals.claudeAssets.length + (signals.hasClaudeGuide ? 1 : 0);
+      const claudeEvidence = signals.claudeAssets.slice(0, 3);
+      const claudeCount = signals.claudeAssets.length;
 
       if (claudeCount >= 2) {
         return makeResult(definition, "pass", claudeEvidence, 0.9);

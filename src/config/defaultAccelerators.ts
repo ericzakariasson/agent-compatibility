@@ -5,7 +5,7 @@ export const DEFAULT_ACCELERATORS: AcceleratorCheckDefinition[] = [
     id: "agentGuidanceDocs",
     name: "Agent guidance docs",
     maxPoints: 2,
-    remediation: "Add AGENTS.md or CLAUDE.md with concise, repo-specific guidance for autonomous work.",
+    remediation: "Add AGENTS.md with concise, repo-specific guidance for autonomous work.",
   },
   {
     id: "cursorToolingConfigured",
@@ -23,7 +23,7 @@ export const DEFAULT_ACCELERATORS: AcceleratorCheckDefinition[] = [
     id: "claudeToolingConfigured",
     name: "Claude project tooling",
     maxPoints: 2,
-    remediation: "Add CLAUDE.md or .claude agents or commands so Claude-based workflows have project context.",
+    remediation: "Add .claude agents or commands so Claude-based workflows have project context.",
   },
   {
     id: "dependencyMcpAlignment",

@@ -97,13 +97,13 @@ describe("renderTuiReport", () => {
       width: 90,
     });
 
-    expect(output).toContain("┏");
-    expect(output).toContain("42");
-    expect(output).toContain("Agent compatibility (heuristic)");
-    expect(output).toContain("Mixed signals from files alone; some basics look present.");
+    expect(output).toContain("┏━━━━━━━━━━┓");
+    expect(output).toContain("┃    42    ┃");
+    expect(output).toContain("┃          ┃  Agent Compatibility Score");
+    expect(output).toContain("Agent Compatibility Score");
     expect(output).toContain("node application repo / 3 open checks across 2 pillars");
     expect(output).toContain("Open rubric / accelerator cues");
-    expect(output).toContain("Linter configured. Add a linter and wire it into local validation or");
+    expect(output).toContain("- Add a linter and wire it into local validation or CI.");
   });
 
   it("includes accelerator issues in the problem list", () => {
@@ -139,7 +139,7 @@ describe("renderTuiReport", () => {
               id: "agentGuidanceDocs",
               name: "Agent guidance docs",
               maxPoints: 2,
-              remediation: "Add AGENTS.md or CLAUDE.md with concise, repo-specific guidance for autonomous work.",
+              remediation: "Add AGENTS.md with concise, repo-specific guidance for autonomous work.",
               status: "partial",
               awardedPoints: 1,
               evidence: ["AGENTS.md (450 words)"],
@@ -156,9 +156,54 @@ describe("renderTuiReport", () => {
     );
 
     expect(output).toContain("node application repo / no open rubric checks / 1 accelerator issue");
-    expect(output).toContain("Agent guidance docs. Add AGENTS.md or CLAUDE.md with concise,");
-    expect(output).toContain("(AGENTS.md (450 words))");
-    expect(output).toContain("(1pt)");
+    expect(output).toContain("- Add AGENTS.md with concise,");
+    expect(output).toContain("repo-specific guidance for autonomous work.");
+    expect(output).toContain("AGENTS.md (450");
+    expect(output).toContain("words))");
+    expect(output).not.toContain("(1pt)");
+  });
+
+  it("uses the actionable sentence when remediation has multiple sentences", () => {
+    const output = renderTuiReport(
+      makeReport({
+        pillars: [
+          {
+            id: "testing",
+            name: "Testing",
+            score: 0,
+            awardedWeight: 0,
+            applicableWeight: 1,
+            checks: [
+              {
+                id: "coverageSignalPresent",
+                pillar: "testing",
+                name: "Coverage signal present",
+                weight: 1,
+                remediation:
+                  "Optional signal for agents and reviewers. Add coverage tooling, thresholds, or published reports if you want visible test-gap reporting.",
+                status: "fail",
+                awardedWeight: 0,
+                evidence: [],
+                confidence: 1,
+              },
+            ],
+          },
+        ],
+        accelerators: {
+          bonusPoints: 0,
+          maxBonusPoints: 8,
+          checks: [],
+          opportunities: [],
+        },
+      }),
+      {
+        color: false,
+        width: 120,
+      },
+    );
+
+    expect(output).toContain("Add coverage tooling, thresholds, or published reports if you want visible test-gap reporting.");
+    expect(output).not.toContain("Optional signal for agents and reviewers");
   });
 
   it("shows a healthy footer when no issues remain", () => {
@@ -204,9 +249,57 @@ describe("renderTuiReport", () => {
 
     expect(output).toContain("┏");
     expect(output).toContain("88");
-    expect(output).toContain("Agent compatibility (heuristic)");
-    expect(output).toContain("Looks fairly agent-friendly from what the scan could see.");
+    expect(output).toContain("Agent Compatibility Score");
     expect(output).toContain("node application repo / no open checks");
     expect(output).toContain("No open checks in this pass.");
+  });
+
+  it("limits the default problem list to five items and supports rendering all problems", () => {
+    const crowdedReport = makeReport({
+      pillars: [
+        {
+          id: "styleValidation",
+          name: "Style & Validation",
+          score: 0,
+          awardedWeight: 0,
+          applicableWeight: 24,
+          checks: Array.from({ length: 6 }, (_, index) => ({
+            id: `issue-${index + 1}`,
+            pillar: "styleValidation" as const,
+            name: `Issue ${index + 1}`,
+            weight: 4,
+            remediation: `Fix issue ${index + 1}.`,
+            status: "fail" as const,
+            awardedWeight: 0,
+            evidence: [],
+            confidence: 1,
+          })),
+        },
+      ],
+      accelerators: {
+        bonusPoints: 0,
+        maxBonusPoints: 8,
+        checks: [],
+        opportunities: [],
+      },
+    });
+
+    const limitedOutput = renderTuiReport(crowdedReport, {
+      color: false,
+      width: 120,
+    });
+
+    expect(limitedOutput).toContain("Showing 5 of 6 problems.");
+    expect(limitedOutput).toContain("Fix issue 5.");
+    expect(limitedOutput).not.toContain("Fix issue 6.");
+
+    const expandedOutput = renderTuiReport(crowdedReport, {
+      color: false,
+      showAllProblems: true,
+      width: 120,
+    });
+
+    expect(expandedOutput).toContain("Fix issue 6.");
+    expect(expandedOutput).not.toContain("Showing 5 of 6 problems.");
   });
 });

@@ -177,7 +177,7 @@ This overlaps with observability, but here the bar is more practical: can an age
 
 ### `agentGuidanceActuallyHelps`
 
-Question: if the repo has `AGENTS.md`, `.cursor/rules`, or `CLAUDE.md`, do those assets actually improve task execution?
+Question: if the repo has `AGENTS.md` or `.cursor/rules`, do those assets actually improve task execution?
 
 This is a good fit for the accelerator layer, but it requires real task runs to measure.
 

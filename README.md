@@ -32,7 +32,7 @@ The accelerator layer is reported separately. It does not replace or inflate the
 
 Current bonus signals include:
 
-- `AGENTS.md` or `CLAUDE.md`
+- `AGENTS.md`
 - `.cursor/rules`, `.cursor/skills`, `.cursor/agents`
 - `.cursor/mcp.json`
 - `.claude/agents`, `.claude/commands`
@@ -40,7 +40,7 @@ Current bonus signals include:
 
 Missing accelerator signals are treated as missed opportunities, not as core compatibility failures.
 
-The Claude-specific accelerator is skipped entirely (no score impact, not listed) unless the repo already has `CLAUDE.md` or files under `.claude/`.
+The Claude-specific accelerator is skipped entirely (no score impact, not listed) unless the repo already has files under `.claude/`.
 
 ## Install
 

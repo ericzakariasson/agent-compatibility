@@ -1,6 +1,6 @@
 import { useEffect, useState, type JSX } from "react";
 
-import { Box, Text, render, renderToString } from "ink";
+import { Box, Text, render, renderToString, useApp, useInput } from "ink";
 
 import type { AcceleratorCheckResult, CheckResult, ScanReport } from "../core/types.js";
 
@@ -9,6 +9,8 @@ import { ensureSentenceEnds } from "./sentences.js";
 export interface TuiRenderOptions {
   color?: boolean;
   verbose?: boolean;
+  problemLimit?: number;
+  showAllProblems?: boolean;
   width?: number;
 }
 
@@ -28,7 +30,30 @@ type ScorePalette = {
   muted: string;
 };
 
+type ProblemEntry = {
+  id: string;
+  text: string;
+};
+
+type ProblemMenuAction = "showAll" | "keepShort";
+
+type ProblemMenuOption = {
+  id: ProblemMenuAction;
+  label: string;
+};
+
+type ProblemMenu = {
+  prompt: string;
+  options: ProblemMenuOption[];
+  selectedIndex: number;
+};
+
 const SPINNER_FRAMES = ["-", "\\", "|", "/"];
+const DEFAULT_PROBLEM_LIMIT = 5;
+const HEADER_GAP = 2;
+const ISSUE_PREFIX = "- ";
+const ISSUE_CONTINUATION_PREFIX = "  ";
+const SCORE_BOX_INNER_WIDTH = 10;
 const SCORE_LOW: Rgb = { r: 214, g: 92, b: 92 };
 const SCORE_HIGH: Rgb = { r: 124, g: 182, b: 114 };
 const SOFT_NEUTRAL: Rgb = { r: 233, g: 228, b: 216 };
@@ -44,6 +69,14 @@ function supportsColor(explicit: boolean | undefined): boolean {
 function clampWidth(width: number | undefined): number {
   const fallback = process.stdout.columns ?? 100;
   return Math.max(68, Math.min(width ?? fallback, 120));
+}
+
+function clampProblemLimit(limit: number | undefined): number {
+  if (limit === undefined || !Number.isFinite(limit)) {
+    return DEFAULT_PROBLEM_LIMIT;
+  }
+
+  return Math.max(1, Math.floor(limit));
 }
 
 function clampRatio(score: number): number {
@@ -83,6 +116,85 @@ function pluralize(count: number, singular: string, plural = `${singular}s`): st
 
 function trimSentence(text: string): string {
   return text.replace(/\.\s*$/, "");
+}
+
+function toSingleSentence(text: string): string {
+  const segments = text
+    .trim()
+    .split(/\.\s+/)
+    .map((segment) => trimSentence(segment.trim()))
+    .filter((segment) => segment.length > 0);
+
+  if (segments.length === 0) {
+    return "";
+  }
+
+  return ensureSentenceEnds(segments[segments.length - 1] ?? "");
+}
+
+function splitLongWord(word: string, width: number): string[] {
+  const safeWidth = Math.max(1, width);
+  const segments: string[] = [];
+
+  for (let index = 0; index < word.length; index += safeWidth) {
+    segments.push(word.slice(index, index + safeWidth));
+  }
+
+  return segments;
+}
+
+function wrapText(text: string, width: number): string[] {
+  const safeWidth = Math.max(1, width);
+  const normalized = text.replace(/\s+/g, " ").trim();
+
+  if (normalized.length === 0) {
+    return [""];
+  }
+
+  const words = normalized.split(" ");
+  const lines: string[] = [];
+  let currentLine = "";
+
+  for (const word of words) {
+    const wordSegments = word.length > safeWidth ? splitLongWord(word, safeWidth) : [word];
+
+    for (const segment of wordSegments) {
+      if (currentLine.length === 0) {
+        currentLine = segment;
+        continue;
+      }
+
+      const nextLine = `${currentLine} ${segment}`;
+      if (nextLine.length <= safeWidth) {
+        currentLine = nextLine;
+        continue;
+      }
+
+      lines.push(currentLine);
+      currentLine = segment;
+    }
+  }
+
+  if (currentLine.length > 0) {
+    lines.push(currentLine);
+  }
+
+  return lines;
+}
+
+function wrapWithPrefix(text: string, width: number, firstPrefix: string, continuationPrefix: string): string[] {
+  const wrappedLines = wrapText(text, Math.max(1, width - firstPrefix.length));
+  return wrappedLines.map((line, index) => `${index === 0 ? firstPrefix : continuationPrefix}${line}`);
+}
+
+function centerText(text: string, width: number): string {
+  if (text.length >= width) {
+    return text.slice(0, width);
+  }
+
+  const leftPadding = Math.floor((width - text.length) / 2);
+  const rightPadding = width - text.length - leftPadding;
+  return `${" ".repeat(leftPadding)}${text}${" ".repeat(rightPadding)}`;
 }
 
 function getOpenChecks(report: ScanReport): CheckResult[] {
@@ -126,34 +238,32 @@ function getOpenAcceleratorChecks(report: ScanReport): AcceleratorCheckResult[] 
 }
 
 function getIssueText(check: CheckResult): string {
-  const missedPoints = Math.max(1, Math.round(check.weight - check.awardedWeight));
-  return `${check.name}. ${ensureSentenceEnds(trimSentence(check.remediation))} (${missedPoints}pt)`;
+  return toSingleSentence(check.remediation);
 }
 
 function getAcceleratorIssueText(check: AcceleratorCheckResult): string {
-  const missedPoints = Math.max(1, Math.round(check.maxPoints - check.awardedPoints));
   const evidence = check.evidence[0] ? ` (${check.evidence[0]})` : "";
-  return `${check.name}. ${ensureSentenceEnds(trimSentence(check.remediation))}${evidence} (${missedPoints}pt)`;
+  return `${toSingleSentence(check.remediation)}${evidence}`;
+}
+
+function getProblemEntries(
+  openChecks: CheckResult[],
+  openAcceleratorChecks: AcceleratorCheckResult[],
+): ProblemEntry[] {
+  return [
+    ...openChecks.map((check) => ({
+      id: check.id,
+      text: getIssueText(check),
+    })),
+    ...openAcceleratorChecks.map((check) => ({
+      id: `accelerator:${check.id}`,
+      text: getAcceleratorIssueText(check),
+    })),
+  ];
 }
 
 function getTitle(): string {
-  return "Agent compatibility (heuristic)";
-}
-
-function getScoreDescription(score: number): string {
-  if (score <= 40) {
-    return "File signals look thin; agents may struggle without more repo scaffolding.";
-  }
-
-  if (score <= 60) {
-    return "Mixed signals from files alone; some basics look present.";
-  }
-
-  if (score <= 80) {
-    return "Mostly plausible for agents, with several file-signal gaps.";
-  }
-
-  return "Looks fairly agent-friendly from what the scan could see.";
+  return "Agent Compatibility Score";
 }
 
 function buildSummaryLine(
@@ -182,40 +292,193 @@ function buildSummaryLine(
   return parts.join(" / ");
 }
 
-function ScoreBox(props: { score: number; width: number; useColor: boolean }): JSX.Element {
-  const { score, width, useColor } = props;
-  const palette = getScorePalette(score);
+function HeaderView(props: {
+  score: number;
+  summary: string;
+  totalWidth: number;
+  accentColor: string;
+  mutedColor: string;
+  useColor: boolean;
+}): JSX.Element {
+  const { score, summary, totalWidth, accentColor, mutedColor, useColor } = props;
+  const scoreBoxOuterWidth = SCORE_BOX_INNER_WIDTH + 2;
+  const rightColumnWidth = Math.max(1, totalWidth - scoreBoxOuterWidth - HEADER_GAP);
+  const summaryLines = wrapText(summary, rightColumnWidth);
+  const bodyLines = [getTitle(), ...summaryLines];
+
+  while (bodyLines.length < 3) {
+    bodyLines.push("");
+  }
+
+  const topBorder = `┏${"━".repeat(SCORE_BOX_INNER_WIDTH)}┓`;
+  const emptyLine = `┃${" ".repeat(SCORE_BOX_INNER_WIDTH)}┃`;
+  const scoreLine = `┃${centerText(String(score), SCORE_BOX_INNER_WIDTH)}┃`;
+  const bottomBorder = `┗${"━".repeat(SCORE_BOX_INNER_WIDTH)}┛`;
 
   return (
-    <Box
-      width={width}
-      minHeight={5}
-      borderStyle="bold"
-      borderColor={useColor ? palette.accent : undefined}
-      justifyContent="center"
-      alignItems="center"
-      marginRight={2}
-    >
-      <Text color={useColor ? palette.accent : undefined} bold>
-        {score}
-      </Text>
+    <Box flexDirection="column" width={totalWidth}>
+      <Text color={useColor ? accentColor : undefined}>{topBorder}</Text>
+      {bodyLines.map((line, index) => (
+        <Box key={`${index}:${line}`} flexDirection="row">
+          <Text color={useColor ? accentColor : undefined}>{index === 1 ? scoreLine : emptyLine}</Text>
+          {line.length > 0 ? (
+            <>
+              <Text>  </Text>
+              <Text
+                bold={index === 0}
+                color={useColor ? (index === 0 ? accentColor : mutedColor) : undefined}
+                dimColor={useColor && index > 0}
+              >
+                {line}
+              </Text>
+            </>
+          ) : null}
+        </Box>
+      ))}
+      <Text color={useColor ? accentColor : undefined}>{bottomBorder}</Text>
     </Box>
   );
 }
 
-function IssueRow(props: { text: string; accentColor: string; useColor: boolean }): JSX.Element {
-  const { text, accentColor, useColor } = props;
+function IssueRow(props: { text: string; width: number }): JSX.Element {
+  const { text, width } = props;
+  const lines = wrapWithPrefix(text, width, ISSUE_PREFIX, ISSUE_CONTINUATION_PREFIX);
 
   return (
-    <Box flexDirection="row">
-      <Box width={2}>
-        <Text color={useColor ? accentColor : undefined} bold>
-          -
+    <Box flexDirection="column">
+      {lines.map((line, index) => (
+        <Text key={`${index}:${line}`}>{line}</Text>
+      ))}
+    </Box>
+  );
+}
+
+function ProblemMenuView(props: {
+  menu: ProblemMenu;
+  useColor: boolean;
+}): JSX.Element {
+  const { menu, useColor } = props;
+
+  return (
+    <Box flexDirection="column" marginTop={1}>
+      <Text bold>{menu.prompt}</Text>
+      {menu.options.map((option, index) => {
+        const isSelected = index === menu.selectedIndex;
+        return (
+          <Text key={option.id} bold={isSelected}>
+            {`${isSelected ? ">" : " "} ${option.label}`}
+          </Text>
+        );
+      })}
+      <Text dimColor={useColor}>Use Up/Down and Enter. Press q to keep the short list.</Text>
+    </Box>
+  );
+}
+
+function ProblemCountNotice(props: { totalProblems: number; visibleProblems: number; width: number; useColor: boolean }): JSX.Element {
+  const { totalProblems, visibleProblems, width, useColor } = props;
+  const lines = wrapText(`Showing ${visibleProblems} of ${totalProblems} problems.`, width);
+
+  return (
+    <Box flexDirection="column">
+      {lines.map((line, index) => (
+        <Text key={`${index}:${line}`} dimColor={useColor}>
+          {line}
         </Text>
-      </Box>
-      <Box flexGrow={1}>
-        <Text>{text}</Text>
-      </Box>
+      ))}
+    </Box>
+  );
+}
+
+function ProblemListSection(props: {
+  problems: ProblemEntry[];
+  totalProblems: number;
+  width: number;
+  useColor: boolean;
+  menu?: ProblemMenu;
+}): JSX.Element {
+  const { problems, totalProblems, width, useColor, menu } = props;
+
+  return (
+    <Box flexDirection="column" marginTop={1}>
+      <Text bold>Open rubric / accelerator cues</Text>
+      {problems.length === 0 ? (
+        <Text>No open checks in this pass.</Text>
+      ) : (
+        <>
+          {problems.map((problem) => (
+            <IssueRow key={problem.id} text={problem.text} width={width} />
+          ))}
+          {totalProblems > problems.length ? (
+            <ProblemCountNotice
+              totalProblems={totalProblems}
+              visibleProblems={problems.length}
+              width={width}
+              useColor={useColor}
+            />
+          ) : null}
+          {menu ? <ProblemMenuView menu={menu} useColor={useColor} /> : null}
+        </>
+      )}
+    </Box>
+  );
+}
+
+function VerboseSection(props: { report: ScanReport }): JSX.Element {
+  const { report } = props;
+
+  return (
+    <Box flexDirection="column" marginTop={1}>
+      <Text bold>Pillars</Text>
+      {report.pillars.map((pillar) => (
+        <Text key={pillar.id}>
+          - {pillar.name} · {pillar.applicableWeight === 0 ? "n/a" : `${pillar.score}/100`}
+        </Text>
+      ))}
+
+      <Text>{`Agent bonus: ${report.accelerators.bonusPoints}/${report.accelerators.maxBonusPoints}`}</Text>
+
+      {report.warnings.length > 0 ? (
+        <Box flexDirection="column" marginTop={1}>
+          <Text bold>Warnings</Text>
+          {report.warnings.map((warning) => (
+            <Text key={warning}>- {warning}</Text>
+          ))}
+        </Box>
+      ) : null}
+    </Box>
+  );
+}
+
+function DashboardContent(props: {
+  report: ScanReport;
+  options: Required<TuiRenderOptions>;
+  visibleProblems: ProblemEntry[];
+  totalProblems: number;
+  summaryLine: string;
+  menu?: ProblemMenu;
+}): JSX.Element {
+  const { report, options, visibleProblems, totalProblems, summaryLine, menu } = props;
+  const palette = getScorePalette(report.overallScore);
+
+  return (
+    <Box width={options.width} flexDirection="column">
+      <HeaderView
+        score={report.overallScore}
+        summary={summaryLine}
+        totalWidth={options.width}
+        accentColor={palette.accent}
+        mutedColor={palette.muted}
+        useColor={options.color}
+      />
+      <ProblemListSection
+        problems={visibleProblems}
+        totalProblems={totalProblems}
+        width={options.width}
+        useColor={options.color}
+        menu={menu}
+      />
+      {options.verbose ? <VerboseSection report={report} /> : null}
     </Box>
   );
 }
@@ -249,75 +512,31 @@ function ErrorView(props: { message: string; width: number; useColor: boolean })
   );
 }
 
-function DashboardView(props: { report: ScanReport; options: Required<TuiRenderOptions> }): JSX.Element {
-  const { report, options } = props;
-  const palette = getScorePalette(report.overallScore);
+function DashboardView(props: {
+  report: ScanReport;
+  options: Required<TuiRenderOptions>;
+  menu?: ProblemMenu;
+  showAllProblems?: boolean;
+}): JSX.Element {
+  const { report, options, menu, showAllProblems = options.showAllProblems } = props;
   const openChecks = getOpenChecks(report);
   const openAcceleratorChecks = getOpenAcceleratorChecks(report);
+  const problemEntries = getProblemEntries(openChecks, openAcceleratorChecks);
+  const visibleProblems = showAllProblems ? problemEntries : problemEntries.slice(0, options.problemLimit);
   const affectedPillars = report.pillars.filter((pillar) =>
     pillar.checks.some((check) => check.status === "fail" || check.status === "partial"),
   ).length;
-  const scoreBoxWidth = Math.min(12, Math.max(10, Math.floor(options.width * 0.14)));
+  const summaryLine = buildSummaryLine(report, openChecks.length, affectedPillars, openAcceleratorChecks.length);
 
   return (
-    <Box width={options.width} flexDirection="column">
-      <Box flexDirection="row">
-        <ScoreBox score={report.overallScore} width={scoreBoxWidth} useColor={options.color} />
-
-        <Box flexDirection="column" flexGrow={1} justifyContent="center">
-          <Text color={options.color ? palette.accent : undefined} bold>
-            {getTitle()}
-          </Text>
-          <Text>{getScoreDescription(report.overallScore)}</Text>
-          <Text color={options.color ? palette.muted : undefined} dimColor={options.color}>
-            {buildSummaryLine(report, openChecks.length, affectedPillars, openAcceleratorChecks.length)}
-          </Text>
-        </Box>
-      </Box>
-
-        <Box flexDirection="column" marginTop={1}>
-          <Text bold>Open rubric / accelerator cues</Text>
-          {openChecks.length === 0 && openAcceleratorChecks.length === 0 ? (
-            <Text>No open checks in this pass.</Text>
-          ) : (
-          <>
-            {openChecks.map((check) => (
-              <IssueRow key={check.id} text={getIssueText(check)} accentColor={palette.accent} useColor={options.color} />
-            ))}
-            {openAcceleratorChecks.map((check) => (
-              <IssueRow
-                key={`accelerator:${check.id}`}
-                text={getAcceleratorIssueText(check)}
-                accentColor={palette.accent}
-                useColor={options.color}
-              />
-            ))}
-          </>
-        )}
-      </Box>
-
-      {options.verbose ? (
-        <Box flexDirection="column" marginTop={1}>
-          <Text bold>Pillars</Text>
-          {report.pillars.map((pillar) => (
-            <Text key={pillar.id}>
-              - {pillar.name} · {pillar.applicableWeight === 0 ? "n/a" : `${pillar.score}/100`}
-            </Text>
-          ))}
-
-          <Text>{`Agent bonus: ${report.accelerators.bonusPoints}/${report.accelerators.maxBonusPoints}`}</Text>
-
-          {report.warnings.length > 0 ? (
-            <Box flexDirection="column" marginTop={1}>
-              <Text bold>Warnings</Text>
-              {report.warnings.map((warning) => (
-                <Text key={warning}>- {warning}</Text>
-              ))}
-            </Box>
-          ) : null}
-        </Box>
-      ) : null}
-    </Box>
+    <DashboardContent
+      report={report}
+      options={options}
+      visibleProblems={visibleProblems}
+      totalProblems={problemEntries.length}
+      summaryLine={summaryLine}
+      menu={menu}
+    />
   );
 }
 
@@ -336,12 +555,73 @@ function LoadingSpinnerApp(props: { targetPath: string; width: number; useColor:
   return <LoadingView targetPath={targetPath} frame={frame} width={width} useColor={useColor} />;
 }
 
-export function renderTuiReport(report: ScanReport, options: TuiRenderOptions = {}): string {
-  const normalizedOptions: Required<TuiRenderOptions> = {
+function ProblemChoiceApp(props: {
+  report: ScanReport;
+  options: Required<TuiRenderOptions>;
+  onComplete: (showAllProblems: boolean) => void;
+}): JSX.Element {
+  const { report, options, onComplete } = props;
+  const { exit } = useApp();
+  const totalProblems = getProblemEntries(getOpenChecks(report), getOpenAcceleratorChecks(report)).length;
+  const menuOptions: ProblemMenuOption[] = [
+    {
+      id: "showAll",
+      label: `Show all ${pluralize(totalProblems, "problem")}`,
+    },
+    { id: "keepShort", label: "Keep it short" },
+  ];
+  const [selectedIndex, setSelectedIndex] = useState(0);
+
+  useInput((input, key) => {
+    if (input === "q" || key.escape) {
+      onComplete(false);
+      exit();
+      return;
+    }
+
+    if (key.upArrow || input === "k") {
+      setSelectedIndex((current) => (current - 1 + menuOptions.length) % menuOptions.length);
+      return;
+    }
+
+    if (key.downArrow || input === "j") {
+      setSelectedIndex((current) => (current + 1) % menuOptions.length);
+      return;
+    }
+
+    if (key.return || input === "\r" || input === "\n") {
+      const selectedOption = menuOptions[selectedIndex];
+
+      onComplete(selectedOption?.id === "showAll");
+      exit();
+    }
+  });
+
+  return (
+    <DashboardView
+      report={report}
+      options={options}
+      menu={{
+        prompt: "Want the full list?",
+        options: menuOptions,
+        selectedIndex,
+      }}
+    />
+  );
+}
+
+function normalizeTuiOptions(options: TuiRenderOptions): Required<TuiRenderOptions> {
+  return {
     color: supportsColor(options.color),
     verbose: Boolean(options.verbose),
+    problemLimit: clampProblemLimit(options.problemLimit),
+    showAllProblems: Boolean(options.showAllProblems),
     width: clampWidth(options.width),
   };
+}
+
+export function renderTuiReport(report: ScanReport, options: TuiRenderOptions = {}): string {
+  const normalizedOptions = normalizeTuiOptions(options);
 
   return renderToString(<DashboardView report={report} options={normalizedOptions} />, {
     columns: normalizedOptions.width,
@@ -349,11 +629,7 @@ export function renderTuiReport(report: ScanReport, options: TuiRenderOptions = 
 }
 
 export async function runTuiSession(options: TuiSessionOptions): Promise<void> {
-  const normalizedOptions: Required<TuiRenderOptions> = {
-    color: supportsColor(options.color),
-    verbose: Boolean(options.verbose),
-    width: clampWidth(options.width),
-  };
+  const normalizedOptions = normalizeTuiOptions(options);
 
   const app = render(
     <LoadingSpinnerApp targetPath={options.targetPath} width={normalizedOptions.width} useColor={normalizedOptions.color} />,
@@ -365,10 +641,35 @@ export async function runTuiSession(options: TuiSessionOptions): Promise<void> {
 
   try {
     const report = await options.loadReport();
+    let showAllProblems = normalizedOptions.showAllProblems;
+    const shouldPromptForAllProblems =
+      !showAllProblems &&
+      getProblemEntries(getOpenChecks(report), getOpenAcceleratorChecks(report)).length > normalizedOptions.problemLimit;
+
     app.clear();
     app.unmount();
     await app.waitUntilExit();
-    process.stdout.write(`${renderTuiReport(report, normalizedOptions)}\n`);
+
+    if (shouldPromptForAllProblems) {
+      const interactiveApp = render(
+        <ProblemChoiceApp
+          report={report}
+          options={normalizedOptions}
+          onComplete={(selectedShowAllProblems) => {
+            showAllProblems = selectedShowAllProblems;
+          }}
+        />,
+        {
+          patchConsole: false,
+          exitOnCtrlC: true,
+        },
+      );
+      await interactiveApp.waitUntilExit();
+      interactiveApp.clear();
+      interactiveApp.unmount();
+    }
+
+    process.stdout.write(`${renderTuiReport(report, { ...normalizedOptions, showAllProblems })}\n`);
   } catch (error) {
     app.clear();
     app.unmount();

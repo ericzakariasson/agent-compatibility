@@ -7,6 +7,7 @@ import type { AcceleratorCheckResult, RepoClassification, RepoDiscovery } from "
 function makeDiscovery(overrides: Partial<RepoDiscovery> = {}): RepoDiscovery {
   return {
     rootPath: "/tmp/example",
+    hasGitMetadata: true,
     filePaths: [],
     sourceFiles: [],
     testFiles: [],
@@ -87,16 +88,16 @@ describe("runAcceleratorChecks", () => {
     expect(result.evidence).toEqual([]);
   });
 
-  it("evaluates Claude accelerator when CLAUDE.md exists", () => {
+  it("evaluates Claude accelerator when .claude assets exist", () => {
     const result = getClaudeToolingResult(
       makeDiscovery({
-        filePaths: ["CLAUDE.md"],
-        textByPath: new Map([["CLAUDE.md", repeatWords(50)]]),
+        filePaths: [".claude/agents/reviewer.md"],
+        textByPath: new Map([[".claude/agents/reviewer.md", repeatWords(50)]]),
       }),
     );
 
     expect(result.status).toBe("partial");
-    expect(result.evidence).toContain("CLAUDE.md");
+    expect(result.evidence).toContain(".claude/agents/");
   });
 
   it("passes concise root guidance docs", () => {
@@ -125,20 +126,17 @@ describe("runAcceleratorChecks", () => {
     expect(result.evidence).toEqual(["AGENTS.md (450 words)"]);
   });
 
-  it("fails when any root guidance doc is too long", () => {
+  it("fails when AGENTS.md is too long", () => {
     const result = getAgentGuidanceResult(
       makeDiscovery({
-        filePaths: ["AGENTS.md", "CLAUDE.md"],
-        textByPath: new Map([
-          ["AGENTS.md", repeatWords(80)],
-          ["CLAUDE.md", repeatWords(950)],
-        ]),
+        filePaths: ["AGENTS.md"],
+        textByPath: new Map([["AGENTS.md", repeatWords(950)]]),
       }),
     );
 
     expect(result.status).toBe("fail");
     expect(result.awardedPoints).toBe(0);
-    expect(result.evidence).toEqual(["AGENTS.md (80 words)", "CLAUDE.md (950 words)"]);
+    expect(result.evidence).toEqual(["AGENTS.md (950 words)"]);
   });
 
   it("passes dependencyMcpAlignment when LLM deps match an MCP server id", () => {

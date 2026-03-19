@@ -79,7 +79,7 @@ function makeReport(overrides: Partial<ScanReport> = {}): ScanReport {
           id: "agentGuidanceDocs",
           name: "Agent guidance docs",
           maxPoints: 2,
-          remediation: "Add AGENTS.md or CLAUDE.md so agents have project context.",
+          remediation: "Add AGENTS.md so agents have project context.",
           status: "partial",
           awardedPoints: 1,
           evidence: ["README"],
@@ -130,7 +130,7 @@ describe("renderMarkdownReport", () => {
     );
     expect(output).toContain("### Agent accelerators");
     expect(output).toContain(
-      "- Agent guidance docs, partial (README). Add AGENTS.md or CLAUDE.md so agents have project context.",
+      "- Agent guidance docs, partial (README). Add AGENTS.md so agents have project context.",
     );
     expect(output).toContain("## Agent Accelerators");
     expect(output).toContain("## Agent Tooling Opportunities");
