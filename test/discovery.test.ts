@@ -20,6 +20,20 @@ afterEach(async () => {
 });
 
 describe("discoverRepository", () => {
+  it("tracks root git metadata without indexing .git internals", async () => {
+    const rootPath = await mkdtemp(path.join(os.tmpdir(), "agent-compatibility-"));
+    tempDirs.push(rootPath);
+
+    await mkdir(path.join(rootPath, ".git"), { recursive: true });
+    await writeFile(path.join(rootPath, ".git", "HEAD"), "ref: refs/heads/main\n");
+    await writeFile(path.join(rootPath, "README.md"), "# Temp Repo\n");
+
+    const discovery = await discoverRepository(rootPath);
+
+    expect(discovery.hasGitMetadata).toBe(true);
+    expect(discovery.filePaths.some((filePath) => filePath.startsWith(".git/"))).toBe(false);
+  });
+
   it("skips broken symlinks instead of failing the scan", async () => {
     const rootPath = await mkdtemp(path.join(os.tmpdir(), "agent-compatibility-"));
     tempDirs.push(rootPath);

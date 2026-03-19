@@ -59,6 +59,14 @@ export const DEFAULT_RUBRIC: CheckDefinition[] = [
     remediation: "Use pre-commit or pre-push hooks to run validation before CI.",
   },
   {
+    id: "gitRepoPresent",
+    pillar: "buildTasks",
+    name: "Git repo present",
+    weight: 2,
+    remediation:
+      "Scan a real git checkout, or initialize the repository with git so agents can rely on branch, diff, and review workflows.",
+  },
+  {
     id: "installPathDeclared",
     pillar: "buildTasks",
     name: "Install path declared",
@@ -90,7 +98,7 @@ export const DEFAULT_RUBRIC: CheckDefinition[] = [
     id: "ciWorkflowPresent",
     pillar: "buildTasks",
     name: "CI workflow present",
-    weight: 3,
+    weight: 4,
     remediation: "Add CI config that runs validation and tests from the repository itself.",
   },
   {

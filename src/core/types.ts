@@ -54,6 +54,7 @@ export interface PackageJsonData {
 
 export interface RepoDiscovery {
   rootPath: string;
+  hasGitMetadata: boolean;
   filePaths: string[];
   sourceFiles: string[];
   testFiles: string[];

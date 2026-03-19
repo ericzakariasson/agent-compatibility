@@ -570,6 +570,18 @@ function securitySignals(discovery: RepoDiscovery): { configured: boolean; inCi:
   };
 }
 
+function gitSnapshotEvidence(discovery: RepoDiscovery): string[] {
+  return uniqueEvidence([
+    ...discovery.manifests.slice(0, 1),
+    ...docsPaths(discovery).slice(0, 1),
+    ...discovery.sourceFiles.slice(0, 1),
+    ...discovery.testFiles.slice(0, 1),
+    ...discovery.ciConfigFiles.slice(0, 1),
+    ...discovery.taskFiles.slice(0, 1),
+    ...discovery.buildConfigFiles.slice(0, 1),
+  ]).slice(0, 3);
+}
+
 function evaluateCheck(definition: CheckDefinition, context: CheckContext): CheckResult {
   const { discovery, classification } = context;
   const scripts = getScripts(discovery);
@@ -645,6 +657,35 @@ function evaluateCheck(definition: CheckDefinition, context: CheckContext): Chec
         return makeResult(definition, "partial", ["hook tooling mentioned in docs"], 0.55);
       }
       return makeResult(definition, "fail", ["no local validation hooks found"], 0.85);
+
+    case "gitRepoPresent": {
+      if (discovery.hasGitMetadata) {
+        return makeResult(definition, "pass", [".git"], 0.95);
+      }
+
+      const looksLikeRepoSnapshot =
+        classification.kind !== "unknown" ||
+        discovery.manifests.length > 0 ||
+        discovery.sourceFiles.length > 0 ||
+        discovery.testFiles.length > 0 ||
+        discovery.docsFiles.length > 0 ||
+        discovery.ciConfigFiles.length > 0 ||
+        discovery.taskFiles.length > 0 ||
+        discovery.buildConfigFiles.length > 0;
+
+      if (looksLikeRepoSnapshot) {
+        const warning =
+          "Scan root has no .git metadata; treating version-control presence as partial in case this is an exported snapshot.";
+        if (!discovery.warnings.includes(warning)) {
+          discovery.warnings.push(warning);
+        }
+
+        const evidence = gitSnapshotEvidence(discovery);
+        return makeResult(definition, "partial", evidence.length > 0 ? evidence : ["repo snapshot signals found"], 0.65);
+      }
+
+      return makeResult(definition, "fail", ["scan root has no .git metadata"], 0.9);
+    }
 
     case "installPathDeclared":
       if (/\b(install|setup|bootstrap|get started|get started|getting started|prerequisite|requirements)\b/i.test(docText)) {

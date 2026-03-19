@@ -60,6 +60,35 @@ function getAcceleratorCheck(report: ScanReport, checkId: string): AcceleratorCh
 }
 
 describe("scanRepository", () => {
+  it("passes git repo presence when the scan root has git metadata", async () => {
+    const rootPath = await createTempRepo({
+      "package.json": JSON.stringify({ name: "git-rooted", version: "1.0.0" }, null, 2),
+      "README.md": "# Git rooted repo\n",
+    });
+
+    await mkdir(path.join(rootPath, ".git"), { recursive: true });
+    await writeFile(path.join(rootPath, ".git", "HEAD"), "ref: refs/heads/main\n");
+
+    const report = await scanRepository({ rootPath });
+
+    expect(getCheck(report, "gitRepoPresent").status).toBe("pass");
+  });
+
+  it("treats snapshot-like scans without git metadata as partial version-control signals", async () => {
+    const rootPath = await createTempRepo({
+      "package.json": JSON.stringify({ name: "snapshot-repo", version: "1.0.0" }, null, 2),
+      "README.md": "# Snapshot repo\n",
+      "src/index.ts": "export const value = 1;\n",
+    });
+
+    const report = await scanRepository({ rootPath });
+
+    expect(getCheck(report, "gitRepoPresent").status).toBe("partial");
+    expect(report.warnings).toContain(
+      "Scan root has no .git metadata; treating version-control presence as partial in case this is an exported snapshot.",
+    );
+  });
+
   it("scores a barebones library as low compatibility", async () => {
     const report = await scanRepository({
       rootPath: fixturePath("basic-js-lib"),
@@ -80,8 +109,9 @@ describe("scanRepository", () => {
 
     expect(report.classification.kind).toBe("application");
     expect(report.overallScore).toBeGreaterThanOrEqual(75);
-    expect(report.baseScore).toBe(100);
+    expect(report.baseScore).toBeGreaterThanOrEqual(95);
     expect(report.acceleratorBonus).toBeGreaterThan(0);
+    expect(getCheck(report, "gitRepoPresent").status).toBe("partial");
     expect(getCheck(report, "ciWorkflowPresent").status).toBe("pass");
     expect(getCheck(report, "strictModeEnabled").status).toBe("pass");
     expect(getCheck(report, "integrationCoverageWhenRelevant").status).toBe("pass");

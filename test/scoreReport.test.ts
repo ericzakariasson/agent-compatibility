@@ -6,6 +6,7 @@ import type { AcceleratorCheckResult, CheckResult, RepoClassification, RepoDisco
 function makeDiscovery(): RepoDiscovery {
   return {
     rootPath: "/tmp/example",
+    hasGitMetadata: false,
     filePaths: [],
     sourceFiles: [],
     testFiles: [],

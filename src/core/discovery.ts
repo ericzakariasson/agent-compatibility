@@ -428,9 +428,19 @@ async function walkDirectory(
   }
 }
 
+async function hasGitMetadata(rootPath: string): Promise<boolean> {
+  try {
+    await stat(path.join(rootPath, ".git"));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function discoverRepository(rootPath: string, extraIgnored: string[] = []): Promise<RepoDiscovery> {
   const filePaths: string[] = [];
   const warnings: string[] = [];
+  const gitMetadataPresent = await hasGitMetadata(rootPath);
   await walkDirectory(rootPath, rootPath, extraIgnored.map((value) => value.replace(/^\.?\//, "")), filePaths);
 
   filePaths.sort();
@@ -501,6 +511,7 @@ export async function discoverRepository(rootPath: string, extraIgnored: string[
 
   return {
     rootPath,
+    hasGitMetadata: gitMetadataPresent,
     filePaths,
     sourceFiles,
     testFiles,
