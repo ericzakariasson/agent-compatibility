@@ -1,6 +1,6 @@
 {
   "name": "agent-compatibility",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "CLI for scoring how compatible a codebase is with autonomous agents.",
   "repository": {
     "type": "git",

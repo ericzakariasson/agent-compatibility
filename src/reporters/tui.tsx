@@ -54,6 +54,10 @@ const HEADER_GAP = 2;
 const ISSUE_PREFIX = "- ";
 const ISSUE_CONTINUATION_PREFIX = "  ";
 const SCORE_BOX_INNER_WIDTH = 10;
+const PROBLEM_DEDUPE_KEYS = new Map<string, string>([
+  ["contributionOrAgentGuidance", "agents-guidance"],
+  ["accelerator:agentGuidanceDocs", "agents-guidance"],
+]);
 const SCORE_LOW: Rgb = { r: 214, g: 92, b: 92 };
 const SCORE_HIGH: Rgb = { r: 124, g: 182, b: 114 };
 const SOFT_NEUTRAL: Rgb = { r: 233, g: 228, b: 216 };
@@ -246,11 +250,19 @@ function getAcceleratorIssueText(check: AcceleratorCheckResult): string {
   return `${toSingleSentence(check.remediation)}${evidence}`;
 }
 
+function canonicalProblemText(text: string): string {
+  return text.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function getProblemDedupKey(entry: ProblemEntry): string {
+  return PROBLEM_DEDUPE_KEYS.get(entry.id) ?? canonicalProblemText(entry.text);
+}
+
 function getProblemEntries(
   openChecks: CheckResult[],
   openAcceleratorChecks: AcceleratorCheckResult[],
 ): ProblemEntry[] {
-  return [
+  const entries = [
     ...openChecks.map((check) => ({
       id: check.id,
       text: getIssueText(check),
@@ -260,6 +272,21 @@ function getProblemEntries(
       text: getAcceleratorIssueText(check),
     })),
   ];
+
+  const dedupedEntries: ProblemEntry[] = [];
+  const seenKeys = new Set<string>();
+
+  for (const entry of entries) {
+    const dedupeKey = getProblemDedupKey(entry);
+    if (seenKeys.has(dedupeKey)) {
+      continue;
+    }
+
+    seenKeys.add(dedupeKey);
+    dedupedEntries.push(entry);
+  }
+
+  return dedupedEntries;
 }
 
 function getTitle(): string {

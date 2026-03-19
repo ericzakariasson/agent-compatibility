@@ -163,6 +163,60 @@ describe("renderTuiReport", () => {
     expect(output).not.toContain("(1pt)");
   });
 
+  it("dedupes overlapping AGENTS guidance suggestions", () => {
+    const output = renderTuiReport(
+      makeReport({
+        pillars: [
+          {
+            id: "documentation",
+            name: "Documentation",
+            score: 0,
+            awardedWeight: 0,
+            applicableWeight: 4,
+            checks: [
+              {
+                id: "contributionOrAgentGuidance",
+                pillar: "documentation",
+                name: "Agent workflow guidance",
+                weight: 2,
+                remediation: "Add AGENTS.md or equivalent agent-facing workflow guidance.",
+                status: "fail",
+                awardedWeight: 0,
+                evidence: [],
+                confidence: 1,
+              },
+            ],
+          },
+        ],
+        accelerators: {
+          bonusPoints: 0,
+          maxBonusPoints: 8,
+          checks: [
+            {
+              id: "agentGuidanceDocs",
+              name: "Agent guidance docs",
+              maxPoints: 2,
+              remediation: "Add AGENTS.md with concise, repo-specific guidance for autonomous work.",
+              status: "partial",
+              awardedPoints: 1,
+              evidence: ["README"],
+              confidence: 1,
+            },
+          ],
+          opportunities: [],
+        },
+      }),
+      {
+        color: false,
+        showAllProblems: true,
+        width: 120,
+      },
+    );
+
+    expect(output).toContain("- Add AGENTS.md or equivalent agent-facing workflow guidance.");
+    expect(output).not.toContain("Add AGENTS.md with concise, repo-specific guidance for autonomous work.");
+  });
+
   it("uses the actionable sentence when remediation has multiple sentences", () => {
     const output = renderTuiReport(
       makeReport({
