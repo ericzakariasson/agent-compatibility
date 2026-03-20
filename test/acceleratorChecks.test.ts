@@ -139,6 +139,39 @@ describe("runAcceleratorChecks", () => {
     expect(result.evidence).toEqual(["AGENTS.md (950 words)"]);
   });
 
+  it("counts .agents/skills toward Cursor tooling accelerator", () => {
+    const discovery = makeDiscovery({
+      filePaths: [".agents/skills/deploy/SKILL.md", ".cursor/rules/standards.mdc"],
+      textByPath: new Map([
+        [
+          ".agents/skills/deploy/SKILL.md",
+          "---\nname: deploy\ndescription: Deploys the app. Use when releasing.\n---\n\n# Deploy\n",
+        ],
+        [".cursor/rules/standards.mdc", "---\nalwaysApply: true\n---\n"],
+      ]),
+    });
+
+    const result = getAcceleratorResult(discovery, "cursorToolingConfigured");
+    expect(result.status).toBe("pass");
+    expect(result.evidence.some((line) => line.includes(".agents/skills/"))).toBe(true);
+  });
+
+  it("adds warnings for Agent Skills files that break SKILL.md conventions", () => {
+    const discovery = makeDiscovery({
+      filePaths: [".agents/skills/deploy/SKILL.md"],
+      textByPath: new Map([
+        [".agents/skills/deploy/SKILL.md", "# Deploy\n\nNo frontmatter.\n"],
+      ]),
+    });
+
+    runAcceleratorChecks(DEFAULT_ACCELERATORS, {
+      discovery,
+      classification: makeClassification(),
+    });
+
+    expect(discovery.warnings.some((w) => w.includes("missing YAML frontmatter"))).toBe(true);
+  });
+
   it("passes dependencyMcpAlignment when LLM deps match an MCP server id", () => {
     const pkg = { name: "x", version: "1.0.0", dependencies: { openai: "4.0.0" } };
     const discovery = makeDiscovery({

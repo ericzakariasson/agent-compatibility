@@ -33,7 +33,7 @@ The accelerator layer is reported separately. It does not replace or inflate the
 Current bonus signals include:
 
 - `AGENTS.md`
-- `.cursor/rules`, `.cursor/skills`, `.cursor/agents`
+- `.agents/skills` (project-level [Agent Skills](https://cursor.com/docs/context/skills)), plus `.cursor/rules`, `.cursor/skills`, `.cursor/agents`
 - `.cursor/mcp.json`
 - `.claude/agents`, `.claude/commands`
 - a curated dependency-to-MCP match for a few obvious cases such as database or browser tooling

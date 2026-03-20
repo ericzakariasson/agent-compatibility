@@ -1,5 +1,6 @@
 import path from "node:path";
 
+import { pushAgentSkillValidationWarnings } from "./agentSkillValidation.js";
 import { docsText as repoDocsText } from "../core/repoDocs.js";
 import type {
   AcceleratorCheckDefinition,
@@ -280,7 +281,12 @@ function buildSignals(discovery: RepoDiscovery): AcceleratorSignals {
     hasAgentsGuide: discovery.filePaths.includes("AGENTS.md"),
     rootGuidanceDocs: getRootGuidanceDocs(discovery),
     docsText: repoDocsText(discovery),
-    cursorAssets: assetPrefixes(discovery, [".cursor/skills/", ".cursor/agents/", ".cursor/rules/"]),
+    cursorAssets: assetPrefixes(discovery, [
+      ".agents/skills/",
+      ".cursor/skills/",
+      ".cursor/agents/",
+      ".cursor/rules/",
+    ]),
     claudeAssets: assetPrefixes(discovery, [".claude/agents/", ".claude/commands/"]),
     validCursorMcpConfigs: cursorMcpConfigs.filter((config) => config.valid),
     invalidCursorMcpConfigs: cursorMcpConfigs.filter((config) => !config.valid),
@@ -318,7 +324,7 @@ function evaluateAccelerator(
       if (signals.cursorAssets.length === 1 || hasFile(discovery, (filePath) => filePath === ".cursorignore")) {
         return makeResult(definition, "partial", signals.cursorAssets.length > 0 ? signals.cursorAssets : [".cursorignore"], 0.65);
       }
-      return makeResult(definition, "fail", ["no project-specific .cursor assets found"], 0.9);
+      return makeResult(definition, "fail", ["no project-specific .agents or .cursor assets found"], 0.9);
 
     case "cursorMcpConfigured":
       if (signals.validCursorMcpConfigs.some((config) => config.serverEntries.length > 0)) {
@@ -418,6 +424,8 @@ export function runAcceleratorChecks(
   context: CheckContext,
 ): AcceleratorCheckResult[] {
   const signals = buildSignals(context.discovery);
+
+  pushAgentSkillValidationWarnings(context.discovery);
 
   for (const invalidConfig of signals.invalidCursorMcpConfigs) {
     context.discovery.warnings.push(`Could not parse ${invalidConfig.filePath}: ${invalidConfig.error ?? "unknown error"}.`);

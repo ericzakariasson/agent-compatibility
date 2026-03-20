@@ -11,7 +11,8 @@ export const DEFAULT_ACCELERATORS: AcceleratorCheckDefinition[] = [
     id: "cursorToolingConfigured",
     name: "Cursor project tooling",
     maxPoints: 2,
-    remediation: "Add project-specific .cursor rules, skills, or agents so Cursor has reusable repo context.",
+    remediation:
+      "Add project-specific .agents/skills, .cursor rules/skills/agents, or both so Cursor has reusable repo context.",
   },
   {
     id: "cursorMcpConfigured",

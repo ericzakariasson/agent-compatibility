@@ -90,7 +90,8 @@ function makeReport(overrides: Partial<ScanReport> = {}): ScanReport {
         {
           checkId: "cursorToolingConfigured",
           title: "Cursor project tooling",
-          remediation: "Add project-specific .cursor rules, skills, or agents so Cursor has reusable repo context.",
+          remediation:
+            "Add project-specific .agents/skills, .cursor rules/skills/agents, or both so Cursor has reusable repo context.",
           maxPoints: 2,
           evidence: [],
         },
@@ -135,7 +136,7 @@ describe("renderMarkdownReport", () => {
     expect(output).toContain("## Agent Accelerators");
     expect(output).toContain("## Agent Tooling Opportunities");
     expect(output).toContain(
-      "- Cursor project tooling. Add project-specific .cursor rules, skills, or agents so Cursor has reusable repo context.",
+      "- Cursor project tooling. Add project-specific .agents/skills, .cursor rules/skills/agents, or both so Cursor has reusable repo context.",
     );
     expect(output).toContain("## Warnings");
     expect(output).toContain("- Repository root could not be fully classified.");

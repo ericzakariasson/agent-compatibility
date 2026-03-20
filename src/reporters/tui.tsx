@@ -4,6 +4,7 @@ import { Box, Text, render, renderToString, useApp, useInput } from "ink";
 
 import type { AcceleratorCheckResult, CheckResult, ScanReport } from "../core/types.js";
 
+import { canCopyPromptToClipboard, isCursorInstalled, copyCursorFixPromptToClipboard, launchCursorFixPrompt } from "./cursorDeeplink.js";
 import { ensureSentenceEnds } from "./sentences.js";
 
 export interface TuiRenderOptions {
@@ -35,7 +36,7 @@ type ProblemEntry = {
   text: string;
 };
 
-type ProblemMenuAction = "showAll" | "keepShort";
+type ProblemMenuAction = "showAll" | "fixWithCursor" | "copyPrompt" | "done";
 
 type ProblemMenuOption = {
   id: ProblemMenuAction;
@@ -48,12 +49,21 @@ type ProblemMenu = {
   selectedIndex: number;
 };
 
+type NormalizedTuiOptions = {
+  color: boolean;
+  verbose: boolean;
+  problemLimit: number;
+  showAllProblems: boolean;
+  width: number;
+};
+
 const SPINNER_FRAMES = ["-", "\\", "|", "/"];
 const DEFAULT_PROBLEM_LIMIT = 5;
 const HEADER_GAP = 2;
 const ISSUE_PREFIX = "- ";
 const ISSUE_CONTINUATION_PREFIX = "  ";
 const SCORE_BOX_INNER_WIDTH = 10;
+const CURSOR_CTA_COLOR = "#6ee7b7";
 const PROBLEM_DEDUPE_KEYS = new Map<string, string>([
   ["contributionOrAgentGuidance", "agents-guidance"],
   ["accelerator:agentGuidanceDocs", "agents-guidance"],
@@ -258,6 +268,40 @@ function getProblemDedupKey(entry: ProblemEntry): string {
   return PROBLEM_DEDUPE_KEYS.get(entry.id) ?? canonicalProblemText(entry.text);
 }
 
+export function getProblemMenuOptions(params: {
+  totalProblems: number;
+  problemLimit: number;
+  cursorFixAvailable: boolean;
+  copyPromptAvailable: boolean;
+}): ProblemMenuOption[] {
+  const { totalProblems, problemLimit, cursorFixAvailable, copyPromptAvailable } = params;
+  const hasHiddenProblems = totalProblems > problemLimit;
+  const options: ProblemMenuOption[] = [];
+
+  if (cursorFixAvailable) {
+    options.push({
+      id: "fixWithCursor",
+      label: "Fix with Cursor",
+    });
+  }
+
+  if (copyPromptAvailable) {
+    options.push({
+      id: "copyPrompt",
+      label: "Copy prompt to fix",
+    });
+  }
+
+  if (hasHiddenProblems) {
+    options.push({
+      id: "showAll",
+      label: `Show all ${pluralize(totalProblems, "problem")}`,
+    });
+  }
+
+  return options;
+}
+
 function getProblemEntries(
   openChecks: CheckResult[],
   openAcceleratorChecks: AcceleratorCheckResult[],
@@ -388,16 +432,20 @@ function ProblemMenuView(props: {
 
   return (
     <Box flexDirection="column" marginTop={1}>
-      <Text bold>{menu.prompt}</Text>
       {menu.options.map((option, index) => {
         const isSelected = index === menu.selectedIndex;
+        const isCursorCta = option.id === "fixWithCursor";
         return (
-          <Text key={option.id} bold={isSelected}>
+          <Text
+            key={option.id}
+            bold={isSelected || isCursorCta}
+            color={useColor && isCursorCta ? CURSOR_CTA_COLOR : undefined}
+          >
             {`${isSelected ? ">" : " "} ${option.label}`}
           </Text>
         );
       })}
-      <Text dimColor={useColor}>Use Up/Down and Enter. Press q to keep the short list.</Text>
+      <Text dimColor={useColor}>Use Up/Down and Enter. Press q to keep the current report.</Text>
     </Box>
   );
 }
@@ -444,7 +492,12 @@ function ProblemListSection(props: {
               useColor={useColor}
             />
           ) : null}
-          {menu ? <ProblemMenuView menu={menu} useColor={useColor} /> : null}
+          {menu ? (
+            <ProblemMenuView
+              menu={menu}
+              useColor={useColor}
+            />
+          ) : null}
         </>
       )}
     </Box>
@@ -479,7 +532,7 @@ function VerboseSection(props: { report: ScanReport }): JSX.Element {
 
 function DashboardContent(props: {
   report: ScanReport;
-  options: Required<TuiRenderOptions>;
+  options: NormalizedTuiOptions;
   visibleProblems: ProblemEntry[];
   totalProblems: number;
   summaryLine: string;
@@ -541,7 +594,7 @@ function ErrorView(props: { message: string; width: number; useColor: boolean })
 
 function DashboardView(props: {
   report: ScanReport;
-  options: Required<TuiRenderOptions>;
+  options: NormalizedTuiOptions;
   menu?: ProblemMenu;
   showAllProblems?: boolean;
 }): JSX.Element {
@@ -584,24 +637,25 @@ function LoadingSpinnerApp(props: { targetPath: string; width: number; useColor:
 
 function ProblemChoiceApp(props: {
   report: ScanReport;
-  options: Required<TuiRenderOptions>;
-  onComplete: (showAllProblems: boolean) => void;
+  options: NormalizedTuiOptions;
+  cursorFixAvailable: boolean;
+  copyPromptAvailable: boolean;
+  onComplete: (action: ProblemMenuAction) => void;
 }): JSX.Element {
-  const { report, options, onComplete } = props;
+  const { report, options, cursorFixAvailable, copyPromptAvailable, onComplete } = props;
   const { exit } = useApp();
   const totalProblems = getProblemEntries(getOpenChecks(report), getOpenAcceleratorChecks(report)).length;
-  const menuOptions: ProblemMenuOption[] = [
-    {
-      id: "showAll",
-      label: `Show all ${pluralize(totalProblems, "problem")}`,
-    },
-    { id: "keepShort", label: "Keep it short" },
-  ];
+  const menuOptions = getProblemMenuOptions({
+    totalProblems,
+    problemLimit: options.problemLimit,
+    cursorFixAvailable,
+    copyPromptAvailable,
+  });
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   useInput((input, key) => {
     if (input === "q" || key.escape) {
-      onComplete(false);
+      onComplete("done");
       exit();
       return;
     }
@@ -619,7 +673,7 @@ function ProblemChoiceApp(props: {
     if (key.return || input === "\r" || input === "\n") {
       const selectedOption = menuOptions[selectedIndex];
 
-      onComplete(selectedOption?.id === "showAll");
+      onComplete(selectedOption?.id ?? "done");
       exit();
     }
   });
@@ -629,7 +683,7 @@ function ProblemChoiceApp(props: {
       report={report}
       options={options}
       menu={{
-        prompt: "Want the full list?",
+        prompt: "",
         options: menuOptions,
         selectedIndex,
       }}
@@ -637,7 +691,7 @@ function ProblemChoiceApp(props: {
   );
 }
 
-function normalizeTuiOptions(options: TuiRenderOptions): Required<TuiRenderOptions> {
+function normalizeTuiOptions(options: TuiRenderOptions): NormalizedTuiOptions {
   return {
     color: supportsColor(options.color),
     verbose: Boolean(options.verbose),
@@ -669,21 +723,31 @@ export async function runTuiSession(options: TuiSessionOptions): Promise<void> {
   try {
     const report = await options.loadReport();
     let showAllProblems = normalizedOptions.showAllProblems;
-    const shouldPromptForAllProblems =
-      !showAllProblems &&
-      getProblemEntries(getOpenChecks(report), getOpenAcceleratorChecks(report)).length > normalizedOptions.problemLimit;
+    const selection = { action: "done" as ProblemMenuAction };
+    const problemEntries = getProblemEntries(getOpenChecks(report), getOpenAcceleratorChecks(report));
+    const cursorFixAvailable = isCursorInstalled();
+    const copyPromptAvailable = canCopyPromptToClipboard();
+    const menuOptions = getProblemMenuOptions({
+      totalProblems: problemEntries.length,
+      problemLimit: normalizedOptions.problemLimit,
+      cursorFixAvailable,
+      copyPromptAvailable,
+    });
+    const shouldPromptForAction = Boolean(process.stdin.isTTY && !showAllProblems && menuOptions.length > 0);
 
     app.clear();
     app.unmount();
     await app.waitUntilExit();
 
-    if (shouldPromptForAllProblems) {
+    if (shouldPromptForAction) {
       const interactiveApp = render(
         <ProblemChoiceApp
           report={report}
           options={normalizedOptions}
-          onComplete={(selectedShowAllProblems) => {
-            showAllProblems = selectedShowAllProblems;
+          cursorFixAvailable={cursorFixAvailable}
+          copyPromptAvailable={copyPromptAvailable}
+          onComplete={(selectedAction) => {
+            selection.action = selectedAction;
           }}
         />,
         {
@@ -694,6 +758,16 @@ export async function runTuiSession(options: TuiSessionOptions): Promise<void> {
       await interactiveApp.waitUntilExit();
       interactiveApp.clear();
       interactiveApp.unmount();
+    }
+
+    showAllProblems = selection.action === "showAll";
+
+    if (selection.action === "fixWithCursor") {
+      await launchCursorFixPrompt(problemEntries.map((problem) => problem.text));
+    }
+
+    if (selection.action === "copyPrompt") {
+      await copyCursorFixPromptToClipboard(problemEntries.map((problem) => problem.text));
     }
 
     process.stdout.write(`${renderTuiReport(report, { ...normalizedOptions, showAllProblems })}\n`);

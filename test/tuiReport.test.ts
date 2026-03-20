@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ScanReport } from "../src/core/types.js";
-import { renderTuiReport } from "../src/reporters/tui.js";
+import { getProblemMenuOptions, renderTuiReport } from "../src/reporters/tui.js";
 
 function makeReport(overrides: Partial<ScanReport> = {}): ScanReport {
   return {
@@ -79,7 +79,8 @@ function makeReport(overrides: Partial<ScanReport> = {}): ScanReport {
         {
           checkId: "cursorToolingConfigured",
           title: "Cursor project tooling",
-          remediation: "Add project-specific .cursor rules, skills, or agents so Cursor has reusable repo context.",
+          remediation:
+            "Add project-specific .agents/skills, .cursor rules/skills/agents, or both so Cursor has reusable repo context.",
           maxPoints: 2,
           evidence: [],
         },
@@ -91,6 +92,44 @@ function makeReport(overrides: Partial<ScanReport> = {}): ScanReport {
 }
 
 describe("renderTuiReport", () => {
+  it("only shows the Cursor option when Cursor is available", () => {
+    expect(
+      getProblemMenuOptions({
+        totalProblems: 20,
+        problemLimit: 5,
+        cursorFixAvailable: true,
+        copyPromptAvailable: true,
+      }).map((option) => option.label),
+    ).toEqual(["Fix with Cursor", "Copy prompt to fix", "Show all 20 problems"]);
+
+    expect(
+      getProblemMenuOptions({
+        totalProblems: 20,
+        problemLimit: 5,
+        cursorFixAvailable: false,
+        copyPromptAvailable: true,
+      }).map((option) => option.label),
+    ).toEqual(["Copy prompt to fix", "Show all 20 problems"]);
+
+    expect(
+      getProblemMenuOptions({
+        totalProblems: 20,
+        problemLimit: 5,
+        cursorFixAvailable: true,
+        copyPromptAvailable: false,
+      }).map((option) => option.label),
+    ).toEqual(["Fix with Cursor", "Show all 20 problems"]);
+
+    expect(
+      getProblemMenuOptions({
+        totalProblems: 3,
+        problemLimit: 5,
+        cursorFixAvailable: false,
+        copyPromptAvailable: false,
+      }),
+    ).toEqual([]);
+  });
+
   it("renders a compact score dashboard", () => {
     const output = renderTuiReport(makeReport(), {
       color: false,
@@ -104,6 +143,9 @@ describe("renderTuiReport", () => {
     expect(output).toContain("node application repo / 3 open checks across 2 pillars");
     expect(output).toContain("Open rubric / accelerator cues");
     expect(output).toContain("- Add a linter and wire it into local validation or CI.");
+    expect(output).not.toContain("Fix with Cursor");
+    expect(output).not.toContain("cursor://anysphere.cursor-deeplink/prompt?text=");
+    expect(output).not.toContain("https://cursor.com/link/prompt");
   });
 
   it("includes accelerator issues in the problem list", () => {
